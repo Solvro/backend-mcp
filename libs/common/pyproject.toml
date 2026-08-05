@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling >= 1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "common"
+version = "0.1.0"
+description = "Shared libraries, settings, logging, tracing and error primitives for ml-mcp-backend"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "redis>=5.0.0",
+    "PyJWT>=2.8.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["common"]

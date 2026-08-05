@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling >= 1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "auth-service"
+version = "0.1.0"
+description = "Authentication service for ml-mcp-backend"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.100.0",
+    "uvicorn>=0.22.0",
+    "sqlalchemy>=2.0.0",
+    "psycopg2-binary>=2.9.0",
+    "common"
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.uv.sources]
+common = { workspace = true }

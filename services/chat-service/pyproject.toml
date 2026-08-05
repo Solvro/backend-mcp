@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling >= 1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "chat-service"
+version = "0.1.0"
+description = "Chat service for ml-mcp-backend"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.100.0",
+    "uvicorn>=0.22.0",
+    "motor>=3.0.0",
+    "redis>=5.0.0",
+    "common",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.uv.sources]
+common = { workspace = true }

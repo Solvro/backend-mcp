@@ -1,0 +1,30 @@
+name: ml-mcp-backend-e2e
+
+services:
+  auth-service:
+    build:
+      context: ..
+      dockerfile: services/auth-service/Dockerfile
+    ports:
+      - "8000:8000"
+    depends_on:
+      httpbin:
+        condition: service_started
+
+  chat-service:
+    build:
+      context: ..
+      dockerfile: services/chat-service/Dockerfile
+    environment:
+      # [TODO] placeholder upstream so future MCP-gateway tests can point at httpbin delay and status
+      MCP_SERVER_URL: "http://httpbin:8080/mcp"
+    ports:
+      - "8001:8000"
+    depends_on:
+      httpbin:
+        condition: service_started
+
+  httpbin:
+    image: mccutchen/go-httpbin:v2.15.0
+    ports:
+      - "8080:8080"

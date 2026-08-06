@@ -32,4 +32,5 @@ members = ["services/*", "libs/*"]
 [tool.pytest.ini_options]
 markers = [
     "unit: marks unit tests",
+    "e2e: marks end-to-end tests",
 ]

@@ -12,7 +12,15 @@ fmt:
     uv run ruff check . --fix
 
 test:
-    uv run pytest -m "not e2e"
+    uv run pytest -m "not e2e" --cov --cov-report=term-missing
+
+test-e2e:
+    uv run pytest -m e2e
+
+e2e:
+    docker compose -f docker/compose.e2e.yml up -d --build --wait
+    -uv run pytest -m e2e
+    docker compose -f docker/compose.e2e.yml down -v
 
 build:
     docker build -f services/auth-service/Dockerfile -t ml-mcp-backend/auth-service:dev .

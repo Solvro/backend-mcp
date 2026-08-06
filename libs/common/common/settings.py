@@ -1,7 +1,7 @@
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from common.secrets import provider
+from common.secrets import get_secrets_provider
 
 
 class CommonSettings(BaseSettings):
@@ -15,8 +15,8 @@ class CommonSettings(BaseSettings):
     log_level: str = "INFO"
 
     database_url: str = Field(
-        default_factory=lambda: provider.get("DATABASE_URL", ""),
+        default_factory=lambda: get_secrets_provider().get("DATABASE_URL", ""),
     )
     redis_url: str = Field(
-        default_factory=lambda: provider.get("REDIS_URL", ""),
+        default_factory=lambda: get_secrets_provider().get("REDIS_URL", ""),
     )

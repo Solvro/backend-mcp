@@ -1,7 +1,6 @@
 name: Main-CI
 
-on:
-  pull_request:
+on: [pull_request]
 
 env:
   UV_VERSION: "0.5.10"

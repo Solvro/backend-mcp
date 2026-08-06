@@ -1,0 +1,29 @@
+from functools import lru_cache
+
+from common.secrets import provider
+from common.settings import CommonSettings
+from pydantic import Field
+
+
+class ChatSettings(CommonSettings):
+    app_name: str = "chat-service"
+
+    mongo_uri: str = Field(
+        default_factory=lambda: provider.get("MONGO_URI", ""),
+    )
+    mcp_server_url: str = "http://localhost:8005/mcp"
+
+    openai_api_key: str = Field(
+        default_factory=lambda: provider.get("OPENAI_API_KEY", ""),
+    )
+    google_api_key: str = Field(
+        default_factory=lambda: provider.get("GOOGLE_API_KEY", ""),
+    )
+    clarin_api_key: str = Field(
+        default_factory=lambda: provider.get("CLARIN_API_KEY", ""),
+    )
+
+
+@lru_cache
+def get_settings() -> ChatSettings:
+    return ChatSettings()

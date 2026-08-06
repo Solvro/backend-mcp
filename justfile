@@ -12,7 +12,7 @@ fmt:
     uv run ruff check . --fix
 
 test:
-    uv run pytest -m "not e2e"
+    uv run pytest -m "not e2e" --cov --cov-report=term-missing
 
 test-e2e:
     uv run pytest -m e2e

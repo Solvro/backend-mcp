@@ -27,7 +27,13 @@ build:
     docker build -f services/chat-service/Dockerfile -t ml-mcp-backend/chat-service:dev .
 
 up:
-    docker compose -f docker/compose.yml up -d --build
+    docker compose -f docker/compose.yml up -d --build --wait
 
 down:
     docker compose -f docker/compose.yml down
+
+down-hard:
+    docker compose -f docker/compose.yml down -v
+
+logs *service:
+    docker compose -f docker/compose.yml logs -f {{service}}

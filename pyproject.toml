@@ -28,3 +28,8 @@ dev = [
 
 [tool.uv.workspace]
 members = ["services/*", "libs/*"]
+
+[tool.pytest.ini_options]
+markers = [
+    "unit: marks unit tests",
+]

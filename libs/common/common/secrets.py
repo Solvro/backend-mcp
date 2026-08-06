@@ -1,5 +1,6 @@
 import os
 from abc import ABC, abstractmethod
+from functools import lru_cache
 from pathlib import Path
 
 
@@ -23,4 +24,10 @@ class EnvSecretsProvider(SecretsProvider):
 
         return default
 
-provider = EnvSecretsProvider()
+
+@lru_cache
+def get_secrets_provider() -> SecretsProvider:
+    backend = os.getenv("SECRETS_BACKEND", "env").lower()
+    if backend == "env":
+        return EnvSecretsProvider()
+    raise ValueError(f"unknown SECRETS_BACKEND: {backend!r}")

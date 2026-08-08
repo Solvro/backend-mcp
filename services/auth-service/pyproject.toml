@@ -10,9 +10,9 @@ requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.100.0",
     "uvicorn>=0.22.0",
-    "sqlalchemy>=2.0.0",
-    "psycopg2-binary>=2.9.0",
-    "common"
+    "sqlalchemy[asyncio]>=2.0.0",
+    "common",
+    "alembic>=1.13.0",
 ]
 
 [tool.hatch.build.targets.wheel]

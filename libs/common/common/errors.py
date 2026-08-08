@@ -1,5 +1,10 @@
 from typing import Any, Optional
 
+from common.settings import CommonSettings
+
+_settings = CommonSettings()
+ERROR_TYPE_BASE_URL = _settings.error_type_base_url.rstrip("/")
+
 
 class AppError(Exception):
     """Base exception for all application-specific errors."""
@@ -16,35 +21,35 @@ class AppError(Exception):
 
 
 class AuthError(AppError):
-    type_uri = "https://api.yourdomain.com/errors/auth-error"
+    type_uri = f"{ERROR_TYPE_BASE_URL}/auth-error"
     title = "Authentication Error"
     status_code = 401
     detail = "Authentication failed or credentials were not provided."
 
 
 class RateLimited(AppError):
-    type_uri = "https://api.yourdomain.com/errors/rate-limited"
+    type_uri = f"{ERROR_TYPE_BASE_URL}/rate-limited"
     title = "Too Many Requests"
     status_code = 429
     detail = "Rate limit exceeded."
 
 
 class UpstreamError(AppError):
-    type_uri = "https://api.yourdomain.com/errors/upstream-error"
+    type_uri = f"{ERROR_TYPE_BASE_URL}/upstream-error"
     title = "Upstream Service Error"
     status_code = 502
     detail = "Error communicating with upstream service."
 
 
 class ValidationError(AppError):
-    type_uri = "https://api.yourdomain.com/errors/validation-error"
+    type_uri = f"{ERROR_TYPE_BASE_URL}/validation-error"
     title = "Validation Error"
     status_code = 422
     detail = "The request parameters or body are invalid."
 
 
 class NotFound(AppError):
-    type_uri = "https://api.yourdomain.com/errors/not-found"
+    type_uri = f"{ERROR_TYPE_BASE_URL}/not-found"
     title = "Resource Not Found"
     status_code = 404
     detail = "The requested resource could not be found."

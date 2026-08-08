@@ -20,6 +20,9 @@ class CommonSettings(BaseSettings):
     redis_url: str = Field(
         default_factory=lambda: get_secrets_provider().get("REDIS_URL", ""),
     )
+    error_type_base_url: str = Field(
+        default_factory=lambda: get_secrets_provider().get("ERROR_TYPE_BASE_URL", ""),
+    )
 
     db_pool_size: int = 5
     db_max_overflow: int = 10

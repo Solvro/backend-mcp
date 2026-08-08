@@ -60,7 +60,7 @@ def client() -> TestClient:
             "/error/auth",
             401,
             "Authentication Error",
-            "Authentication failed.",
+            "Authentication failed or credentials were not provided.",
         ),
         (
             "/error/rate",

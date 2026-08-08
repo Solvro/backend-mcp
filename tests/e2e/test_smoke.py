@@ -5,9 +5,9 @@ import urllib.request
 
 import pytest
 
-AUTH_URL = os.getenv("AUTH_URL", "http://localhost:8000")
-CHAT_URL = os.getenv("CHAT_URL", "http://localhost:8001")
-HTTPBIN_URL = os.getenv("HTTPBIN_URL", "http://localhost:8080")
+AUTH_URL = os.getenv("AUTH_URL", "http://localhost:18000")
+CHAT_URL = os.getenv("CHAT_URL", "http://localhost:18001")
+HTTPBIN_URL = os.getenv("HTTPBIN_URL", "http://localhost:18080")
 
 pytestmark = pytest.mark.e2e
 

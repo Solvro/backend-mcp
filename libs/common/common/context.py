@@ -9,7 +9,7 @@ from common.logging import (
     )
 
 
-class RequestContextMiddleware:
+class RequestContext:
     def __init__(self, app: Callable):
         self.app = app
 

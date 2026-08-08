@@ -6,7 +6,7 @@ services:
       context: ..
       dockerfile: services/auth-service/Dockerfile
     ports:
-      - "8000:8000"
+      - "18000:8000"
     depends_on:
       httpbin:
         condition: service_started
@@ -19,7 +19,7 @@ services:
       # [TODO] placeholder upstream so future MCP-gateway tests can point at httpbin delay and status
       MCP_SERVER_URL: "http://httpbin:8080/mcp"
     ports:
-      - "8001:8000"
+      - "18001:8000"
     depends_on:
       httpbin:
         condition: service_started
@@ -27,4 +27,4 @@ services:
   httpbin:
     image: mccutchen/go-httpbin:v2.15.0
     ports:
-      - "8080:8080"
+      - "18080:8080"

@@ -94,7 +94,7 @@ jobs:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: mcp_backend
         ports:
-          - "5432:5432"
+          - "5433:5432"
         options: >-
           --health-cmd "pg_isready -U postgres -d mcp_backend"
           --health-interval 5s
@@ -102,7 +102,7 @@ jobs:
           --health-retries 10
 
     env:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/mcp_backend
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5433/mcp_backend
 
     steps:
       - name: Checkout

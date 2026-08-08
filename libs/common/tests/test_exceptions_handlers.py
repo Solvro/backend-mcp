@@ -30,12 +30,15 @@ def _create_app():
     return app
 
 
+def _create_client(app: FastAPI):
+    return TestClient(app, raise_server_exceptions=False)
+
+
 def test_app_error_response_fields_and_content():
-    client = TestClient(_create_app())
+    client = _create_client(_create_app())
     r = client.get("/app-error")
     assert r.status_code == 401
     body = r.json()
-    # required RFC7807 fields
     for key in ("type", "title", "status", "detail", "request_id"):
         assert key in body
     assert body["status"] == 401
@@ -43,19 +46,18 @@ def test_app_error_response_fields_and_content():
 
 
 def test_unknown_exception_does_not_leak_stacktrace():
-    client = TestClient(_create_app())
+    client = _create_client(_create_app())
     r = client.get("/unknown")
     assert r.status_code == 500
     body = r.json()
     assert body["title"] == "Internal Server Error"
-    # generic detail message (no raw exception text or stack trace)
     assert body["detail"] == "An unexpected internal server error occurred."
-    # ensure no obvious traceback fields are returned
+
     assert "traceback" not in json.dumps(body).lower()
 
 
 def test_validation_error_returns_rfc7807_list_detail():
-    client = TestClient(_create_app())
+    client = _create_client(_create_app())
     r = client.get("/validate", params={"q": "not-an-int"})
     assert r.status_code == 422
     body = r.json()
@@ -65,7 +67,7 @@ def test_validation_error_returns_rfc7807_list_detail():
 
 
 def test_http_exception_mapped_to_rfc7807():
-    client = TestClient(_create_app())
+    client = _create_client(_create_app())
     r = client.get("/http-exc")
     assert r.status_code == 403
     body = r.json()

@@ -78,5 +78,64 @@ jobs:
       - name: Install just
         uses: extractions/setup-just@v2
 
-      - name: Run unit/integration tests
+      - name: Build service images
         run: just build
+
+  migrations:
+    name: DB migrations
+    runs-on: ubuntu-latest
+    needs: [lint]
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mcp_backend
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U postgres -d mcp_backend"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/mcp_backend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install just
+        uses: extractions/setup-just@v2
+
+      - name: Install dependencies
+        run: uv sync --dev --all-packages
+
+      - name: Run migrations (alembic upgrade head)
+        run: just migrate
+
+      - name: Verify DB healthcheck query
+        run: |
+          uv run --package auth-service python - <<'PY'
+          import asyncio
+          from common.db import check_database, dispose_engine
+
+          async def main() -> None:
+              assert await check_database()
+              await dispose_engine()
+
+          asyncio.run(main())
+          PY

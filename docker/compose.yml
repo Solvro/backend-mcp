@@ -48,13 +48,28 @@ services:
       start_period: 3s
     networks: [backend]
 
+  migrate:
+    build:
+      context: ..
+      dockerfile: services/auth-service/Dockerfile
+    image: ml-mcp-backend/auth-service:dev
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-mcp_backend}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks: [backend]
+
   auth-service:
     build:
       context: ..
       dockerfile: services/auth-service/Dockerfile
+    image: ml-mcp-backend/auth-service:dev
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-mcp_backend}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-mcp_backend}
       REDIS_URL: redis://redis:6379
     ports:
       - "8000:8000"
@@ -63,6 +78,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     networks: [backend]
 
   chat-service:

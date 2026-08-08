@@ -3,6 +3,7 @@ import uuid
 from typing import Any
 
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -36,10 +37,14 @@ def build_rfc7807_response(
         "type": type_uri,
         "title": title,
         "status": status,
-        "detail": detail,
+        "detail": jsonable_encoder(detail),
         "request_id": _get_request_id(request),
     }
-    return JSONResponse(status_code=status, content=content)
+    return JSONResponse(
+        status_code=status,
+        content=content,
+        media_type="application/problem+json",
+    )
 
 
 def register_exception_handlers(app: FastAPI) -> None:
@@ -50,6 +55,16 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(AppError)
     async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:
+        if exc.status_code >= 500:
+            logger.error(
+                "Unhandled application error",
+                exc_info=exc,
+                extra={
+                    "method": request.method,
+                    "path": request.url.path,
+                    "request_id": _get_request_id(request),
+                },
+            )
         return build_rfc7807_response(
             request=request,
             status=exc.status_code,
@@ -67,7 +82,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             status=ValidationError.status_code,
             title=ValidationError.title,
             type_uri=ValidationError.type_uri,
-            detail=exc.errors(),
+            detail=jsonable_encoder(exc.errors()),
         )
 
     @app.exception_handler(StarletteHTTPException)

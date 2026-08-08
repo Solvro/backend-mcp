@@ -1,10 +1,9 @@
 import json
 
-from fastapi import FastAPI, HTTPException
-from fastapi.testclient import TestClient
-
 from common.errors import AuthError
 from common.exceptions_handlers import register_exception_handlers
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
 
 
 def _create_app():

@@ -27,7 +27,7 @@ class AuthError(AppError):
     detail = "Authentication failed or credentials were not provided."
 
 
-class RateLimited(AppError):
+class RateLimitedError(AppError):
     type_uri = f"{ERROR_TYPE_BASE_URL}/rate-limited"
     title = "Too Many Requests"
     status_code = 429
@@ -48,7 +48,7 @@ class ValidationError(AppError):
     detail = "The request parameters or body are invalid."
 
 
-class NotFound(AppError):
+class NotFoundError(AppError):
     type_uri = f"{ERROR_TYPE_BASE_URL}/not-found"
     title = "Resource Not Found"
     status_code = 404

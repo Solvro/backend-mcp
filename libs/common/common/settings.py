@@ -20,6 +20,7 @@ class CommonSettings(BaseSettings):
     redis_url: str = Field(
         default_factory=lambda: get_secrets_provider().get("REDIS_URL", ""),
     )
+    redis_key_prefix: str = "mcp"
     mongo_uri: str = Field(
         default_factory=lambda: get_secrets_provider().get("MONGO_URI", ""),
     )

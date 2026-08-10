@@ -20,6 +20,7 @@ class CommonSettings(BaseSettings):
     redis_url: str = Field(
         default_factory=lambda: get_secrets_provider().get("REDIS_URL", ""),
     )
+    redis_key_prefix: str = "mcp"
     error_type_base_url: str = Field(
         default_factory=lambda: get_secrets_provider().get("ERROR_TYPE_BASE_URL", ""),
     )

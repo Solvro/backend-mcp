@@ -85,7 +85,7 @@ def upgrade() -> None:
             sa.Integer(),
             sa.ForeignKey("users.id", ondelete="CASCADE"),
             nullable=False,
-            idx=True,
+            index=True,
         ),
         sa.Column("token_hash", sa.String(length=512), nullable=False),
         sa.Column("jti", sa.String(length=255), nullable=False, unique=True),

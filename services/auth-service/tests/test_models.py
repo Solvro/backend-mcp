@@ -7,7 +7,6 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 
-
 @pytest.mark.unit
 def test_auth_orm_tables_are_registered() -> None:
     registered = {table.name for table in Base.metadata.tables.values()}

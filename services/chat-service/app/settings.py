@@ -8,9 +8,6 @@ from pydantic import Field
 class ChatSettings(CommonSettings):
     app_name: str = "chat-service"
 
-    mongo_uri: str = Field(
-        default_factory=lambda: get_secrets_provider().get("MONGO_URI", ""),
-    )
     mcp_server_url: str = "http://localhost:8005/mcp"
 
     openai_api_key: str = Field(

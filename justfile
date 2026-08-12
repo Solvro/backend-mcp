@@ -1,3 +1,6 @@
+# Load a repo-root .env into recipe environments when present (optional).
+set dotenv-load := true
+
 default:
     @just --list
 
@@ -21,6 +24,10 @@ e2e:
     docker compose -f docker/compose.e2e.yml up -d --build --wait
     -uv run pytest -m e2e
     docker compose -f docker/compose.e2e.yml down -v
+
+migrate:
+    DATABASE_URL="${DATABASE_URL:-postgresql+asyncpg://postgres:postgres@localhost:5432/mcp_backend}" \
+        uv run --package auth-service alembic -c services/auth-service/alembic.ini upgrade head
 
 build:
     docker build -f services/auth-service/Dockerfile -t ml-mcp-backend/auth-service:dev .

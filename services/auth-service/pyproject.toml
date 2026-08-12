@@ -13,6 +13,7 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0.0",
     "common",
     "alembic>=1.13.0",
+    "argon2-cffi>=23.1.0",
 ]
 
 [tool.hatch.build.targets.wheel]

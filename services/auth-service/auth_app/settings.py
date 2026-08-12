@@ -14,6 +14,12 @@ class AuthSettings(CommonSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
 
+    argon2_time_cost: int = 3
+    argon2_memory_cost: int = 64 * 1024
+    argon2_parallelism: int = 4
+    argon2_hash_len: int = 32
+    argon2_salt_len: int = 16
+
 
 @lru_cache
 def get_settings() -> AuthSettings:

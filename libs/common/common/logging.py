@@ -1,3 +1,4 @@
+import datetime
 import json
 import logging
 import sys
@@ -15,8 +16,15 @@ class JsonFormatter(logging.Formatter):
         self.service_name = service_name
 
     def format(self, record: logging.LogRecord) -> str:
+        dt = datetime.datetime.fromtimestamp(
+            record.created, datetime.timezone.utc
+            )
+        timestamp = dt.isoformat(
+            timespec="milliseconds"
+            ).replace("+00:00", "Z")
+
         log_record = {
-            "timestamp": self.formatTime(record, self.datefmt),
+            "timestamp": timestamp,
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
@@ -49,3 +57,13 @@ def setup_logging(service_name: str, log_level: str = "INFO"):
     handler.setFormatter(JsonFormatter(service_name=service_name))
 
     root_logger.addHandler(handler)
+
+    uvicorn_logger = logging.getLogger("uvicorn")
+    uvicorn_logger.setLevel(log_level)
+    uvicorn_logger.handlers.clear()
+    uvicorn_logger.propagate = True
+
+    uvicorn_access_logger = logging.getLogger("uvicorn.access")
+    uvicorn_access_logger.setLevel(log_level)
+    uvicorn_access_logger.handlers.clear()
+    uvicorn_access_logger.propagate = True

@@ -3,13 +3,7 @@ import json
 import logging
 import sys
 
-
-from common.context import (
-    request_id_var,
-    session_id_var,
-    trace_id_var,
-    user_id_var
-    )
+from common.context import request_id_var, session_id_var, trace_id_var, user_id_var
 
 
 class JsonFormatter(logging.Formatter):

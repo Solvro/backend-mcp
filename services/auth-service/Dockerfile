@@ -23,6 +23,9 @@ WORKDIR /app
 
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
 
+COPY --from=builder --chown=app:app /app/services/auth-service/alembic.ini /app/alembic.ini
+COPY --from=builder --chown=app:app /app/services/auth-service/migrations /app/migrations
+
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1

@@ -1,13 +1,31 @@
-from common.config import RequestContext
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from common.exceptions_handlers import register_exception_handlers
-from common.logging import setup_logging
+from common.mongo import close_mongo_client, create_indexes
 from fastapi import FastAPI
 
-setup_logging(service_name="chat-service", log_level="INFO")
+from app.settings import get_settings
 
-app = FastAPI(title="ml-mcp-backend · chat-service", version="0.1.0")
+logger = logging.getLogger(__name__)
 
-app.add_middleware(RequestContext)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    settings = get_settings()
+    if settings.mongo_uri:
+        try:
+            await create_indexes(settings)
+        except Exception:
+            logger.warning("Mongo index bootstrap failed", exc_info=True)
+    else:
+        logger.info("MONGO_URI not set — skipping Mongo index bootstrap")
+    yield
+    await close_mongo_client()
+
+
+app = FastAPI(title="ml-mcp-backend - chat-service", version="0.1.0", lifespan=lifespan)
 
 register_exception_handlers(app)
 

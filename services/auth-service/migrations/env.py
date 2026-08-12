@@ -1,6 +1,7 @@
 import asyncio
 
 from alembic import context
+from app.models import RefreshToken, Role, User, UserRole  # noqa: F401
 from common.db import Base
 from common.settings import CommonSettings
 from sqlalchemy import pool

@@ -10,7 +10,7 @@ from fastapi import FastAPI
 
 from app.settings import get_settings
 
-setup_logging(service_name="chat-service", log_level="INFO")
+setup_logging(service_name="chat-service", log_level=get_settings().log_level)
 
 logger = logging.getLogger(__name__)
 

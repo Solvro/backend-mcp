@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from app.models import RefreshToken, Role, User, UserRole
+from auth_app.models import RefreshToken, Role, User, UserRole
 from common.db import Base
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session

@@ -2,11 +2,10 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+from auth_app.settings import get_settings
 from common.exceptions_handlers import register_exception_handlers
 from common.mongo import close_mongo_client, create_indexes
 from fastapi import FastAPI
-
-from app.settings import get_settings
 
 logger = logging.getLogger(__name__)
 

@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["app"]
+packages = ["auth_app"]
 
 [tool.uv.sources]
 common = { workspace = true }

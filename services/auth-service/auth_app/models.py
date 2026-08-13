@@ -22,6 +22,7 @@ class User(Base):
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
+        onupdate=func.now(),
     )
 
     roles: Mapped[list["Role"]] = relationship(back_populates="users", secondary="user_roles")
@@ -46,6 +47,7 @@ class Role(Base):
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
+        onupdate=func.now()
     )
 
     users: Mapped[list[User]] = relationship(back_populates="roles", secondary="user_roles")

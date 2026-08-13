@@ -8,7 +8,7 @@ from common.logging import setup_logging
 from common.mongo import close_mongo_client, create_indexes
 from fastapi import FastAPI
 
-from app.settings import get_settings
+from chat_app.settings import get_settings
 
 setup_logging(service_name="chat-service", log_level=get_settings().log_level)
 

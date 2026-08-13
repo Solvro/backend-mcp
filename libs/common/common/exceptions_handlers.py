@@ -86,9 +86,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         )
 
     @app.exception_handler(StarletteHTTPException)
-    async def handle_http_exception(
-        request: Request, exc: StarletteHTTPException
-    ) -> JSONResponse:
+    async def handle_http_exception(request: Request, exc: StarletteHTTPException) -> JSONResponse:
         return build_rfc7807_response(
             request=request,
             status=exc.status_code,
@@ -98,9 +96,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         )
 
     @app.exception_handler(Exception)
-    async def handle_uncaught_exception(
-        request: Request, exc: Exception
-    ) -> JSONResponse:
+    async def handle_uncaught_exception(request: Request, exc: Exception) -> JSONResponse:
         request_id = _get_request_id(request)
         logger.error(
             f"Unhandled Exception on {request.method} {request.url.path} [request_id={request_id}]",

@@ -1,4 +1,4 @@
-from common.context import RequestContext
+from common.middleware import RequestContext
 from common.exceptions_handlers import register_exception_handlers
 from common.logging import setup_logging
 from fastapi import FastAPI

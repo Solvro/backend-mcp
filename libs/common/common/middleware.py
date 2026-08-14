@@ -5,7 +5,7 @@ from typing import Callable
 from contextvars import ContextVar
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from settings import CommonSettings
+from .settings import CommonSettings
 
 logger = logging.getLogger(__name__)
 

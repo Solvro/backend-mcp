@@ -7,7 +7,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from settings import CommonSettings
 
-settings = CommonSettings()
 logger = logging.getLogger(__name__)
 
 request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
@@ -83,7 +82,7 @@ class RequestContext:
             user_id_var.reset(t4)
 
 
-def setup_middleware(app: FastAPI) -> None:
+def setup_middleware(app: FastAPI, settings: CommonSettings) -> None:
     """
     Set up middleware for the FastAPI application.
     """

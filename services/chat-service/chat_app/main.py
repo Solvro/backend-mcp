@@ -2,9 +2,9 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from common.middleware import setup_middleware
 from common.exceptions_handlers import register_exception_handlers
 from common.logging import setup_logging
+from common.middleware import setup_middleware
 from common.mongo import close_mongo_client, create_indexes
 from fastapi import FastAPI
 

@@ -1,6 +1,6 @@
-from common.middleware import setup_middleware
 from common.exceptions_handlers import register_exception_handlers
 from common.logging import setup_logging
+from common.middleware import setup_middleware
 from fastapi import FastAPI
 
 from auth_app.settings import get_settings

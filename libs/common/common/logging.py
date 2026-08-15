@@ -62,4 +62,4 @@ def setup_logging(service_name: str, log_level: str = "INFO"):
     uvicorn_access_logger = logging.getLogger("uvicorn.access")
     uvicorn_access_logger.setLevel(log_level)
     uvicorn_access_logger.handlers.clear()
-    uvicorn_access_logger.propagate = True
+    uvicorn_access_logger.propagate = False

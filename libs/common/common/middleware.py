@@ -64,8 +64,15 @@ class RequestContext:
         finally:
             process_time = time.perf_counter() - start_time
             logger.info(
-                f"{method} {path} completed with status "
-                f"{response_status} in {process_time:.4f} seconds"
+                "Request completed",
+                extra={
+                    "method": method,
+                    "path": path,
+                    "status": response_status,
+                    "process_time": process_time,
+                    "request_id": request_id_var.get(),
+                    "trace_id": trace_id_var.get(),
+                }
             )
 
             request_id_var.reset(t1)

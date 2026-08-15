@@ -41,7 +41,10 @@ class CommonSettings(BaseSettings):
     mongo_min_pool_size: int = 0
     mongo_server_selection_timeout_ms: int = 5000
 
-    cors_allow_origins: list[str] = ["*"]
+    cors_allow_origins: list[str] = [
+        "http://localhost:8000",
+        "http://localhost:8080",
+    ]
     cors_allow_methods: list[str] = ["*"]
     cors_allow_headers: list[str] = ["*"]
     cors_allow_credentials: bool = True

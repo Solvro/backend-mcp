@@ -6,8 +6,8 @@ from typing import Callable
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from libs.common.common.context import request_id_var, session_id_var, trace_id_var, user_id_var
-from libs.common.common.settings import CommonSettings
+from common.context import request_id_var, session_id_var, trace_id_var, user_id_var
+from common.settings import CommonSettings
 
 logger = logging.getLogger(__name__)
 

@@ -2,7 +2,7 @@ import json  # noqa
 import logging
 import pytest
 from common.logging import setup_logging
-from common.middleware import (
+from common.context import (
     request_id_var,
     user_id_var,
     session_id_var,

@@ -35,19 +35,9 @@ class RequestContext:
             b"x-request-id") or str(uuid.uuid4()).encode()
         trace_id_bytes = headers.get(
             b"x-trace-id") or str(uuid.uuid4()).encode()
-        session_id_bytes = headers.get(
-            b"x-session-id")
-        user_id_bytes = headers.get(
-            b"x-user-id")
 
         t1 = request_id_var.set(request_id_bytes.decode("utf-8"))
         t2 = trace_id_var.set(trace_id_bytes.decode("utf-8"))
-        t3 = session_id_var.set(
-            session_id_bytes.decode("utf-8") if session_id_bytes else None
-            )
-        t4 = user_id_var.set(
-            user_id_bytes.decode("utf-8") if user_id_bytes else None
-        )
 
         response_status = 500
 
@@ -61,10 +51,16 @@ class RequestContext:
                 headers.append((b"x-request-id", request_id_bytes))
                 headers.append((b"x-trace-id", trace_id_bytes))
                 headers.append((b"x-process-time", str(process_time).encode()))
-                if session_id_bytes is not None:
-                    headers.append((b"x-session-id", session_id_bytes))
-                if user_id_bytes is not None:
-                    headers.append((b"x-user-id", user_id_bytes))
+
+                current_session_id = session_id_var.get()
+                if current_session_id:
+                    headers.append(
+                        (b"x-session-id", current_session_id.encode())
+                        )
+
+                current_user_id = user_id_var.get()
+                if current_user_id:
+                    headers.append((b"x-user-id", current_user_id.encode()))
 
             await send(message)
 
@@ -79,8 +75,6 @@ class RequestContext:
 
             request_id_var.reset(t1)
             trace_id_var.reset(t2)
-            session_id_var.reset(t3)
-            user_id_var.reset(t4)
 
 
 def setup_middleware(app: FastAPI, settings: CommonSettings) -> None:

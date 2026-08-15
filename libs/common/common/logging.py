@@ -43,6 +43,22 @@ class JsonFormatter(logging.Formatter):
 
 
 def setup_logging(service_name: str, log_level: str = "INFO"):
+    """
+    Sets up logging configuration with a JSON formatter
+    and context variable support.
+
+    Components:
+    - Root logger: Configured to log messages at the specified log level.
+    - Uvicorn logger: Configured to log messages at the specified log level
+    and propagate
+        to the root logger.
+    - Uvicorn access logger: Configured to log messages at the specified
+    log level and not propagate to the root logger.
+
+    Args:
+    - service_name (str): The name of the service for logging purposes.
+    - log_level (str): The logging level (default: "INFO").
+    """
     root_logger = logging.getLogger()
     root_logger.setLevel(log_level)
 

@@ -2,7 +2,7 @@ import re
 import unicodedata
 
 from common.errors import ValidationError
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from chat_app.settings import get_settings
 
@@ -103,7 +103,14 @@ def validate_chat_message(user_input: str) -> str:
 
 
 class ChatMessageIn(BaseModel):
-    message: str
+    message: str = Field(
+        description=(
+            "User chat message. 1–2000 characters after Unicode normalization also "
+            "rejected with 422 if empty, oversized, or matching an input-guardrail "
+            "category (prompt_injection, system_prompt_probe, special_token, "
+            "code_block, encoded_payload)."
+        ),
+    )
 
     @field_validator("message")
     @classmethod

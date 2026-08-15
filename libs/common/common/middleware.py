@@ -59,7 +59,7 @@ class RequestContext:
                 headers.append((b"x-request-id", request_id_bytes))
                 headers.append((b"x-trace-id", trace_id_bytes))
                 headers.append(
-                    (b"x-process-time", f"{process_ms:.2f}ms".encode())
+                    (b"x-process-time", f"{process_ms:.2f}".encode())
                     )
 
             await send(message)

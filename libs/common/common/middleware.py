@@ -1,10 +1,12 @@
-import uuid # noqa
-import time
 import logging
+import time
+import uuid
 from typing import Callable
-from .context import request_id_var, trace_id_var, session_id_var, user_id_var
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+from .context import request_id_var, session_id_var, trace_id_var, user_id_var
 from .settings import CommonSettings
 
 logger = logging.getLogger(__name__)

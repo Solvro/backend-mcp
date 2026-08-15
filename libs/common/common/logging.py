@@ -36,6 +36,10 @@ class JsonFormatter(logging.Formatter):
         if (usr_id := user_id_var.get()) is not None:
             log_record["user_id"] = usr_id
 
+        for key in ["method", "path", "status", "process_time"]:
+            if hasattr(record, key):
+                log_record[key] = getattr(record, key)
+
         if record.exc_info:
             log_record["exception"] = self.formatException(record.exc_info)
 

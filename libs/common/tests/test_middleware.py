@@ -72,3 +72,22 @@ def test_cors_middleware_with_unauthorized_origin(settings):
 
     assert response.status_code == 200
     assert response.headers.get("access-control-allow-origin") is None
+
+
+@pytest.mark.unit
+def test_request_id_is_propagated(settings):
+    app = FastAPI()
+    setup_middleware(app, settings)
+
+    @app.get("/test")
+    async def test_endpoint():
+        return {"status": "ok"}
+
+    client = TestClient(app)
+
+    request_id = "test-request-id"
+
+    response = client.get("/test", headers={"X-Request-ID": request_id},)
+
+    assert response.status_code == 200
+    assert response.headers["x-request-id"] == request_id

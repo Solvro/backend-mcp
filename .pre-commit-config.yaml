@@ -14,6 +14,13 @@ repos:
           - '--negate'
         stages:
           - commit-msg
+      - id: pytest
+        name: pytest (excluding e2e)
+        entry: pytest -m "not e2e"
+        language: system
+        pass_filenames: false
+        stages:
+          - pre-commit
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v3.2.0
     hooks:

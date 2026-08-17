@@ -1,7 +1,6 @@
 import pytest
-
-from app import settings as auth_settings
-from app.security import get_password_hasher, hash_password, needs_rehash, verify_password
+from auth_app import settings as auth_settings
+from auth_app.security import get_password_hasher, hash_password, needs_rehash, verify_password
 
 
 @pytest.fixture(autouse=True)
@@ -17,7 +16,7 @@ def fast_test_hasher(monkeypatch: pytest.MonkeyPatch) -> None:
 
     auth_settings.get_settings.cache_clear()
 
-
+@pytest.mark.unit
 def test_hash_password_does_not_store_plaintext() -> None:
     password = "super-secret-password"
 
@@ -26,17 +25,17 @@ def test_hash_password_does_not_store_plaintext() -> None:
     assert hashed != password
     assert hashed.startswith("$argon2id$")
 
-
+@pytest.mark.unit
 def test_hash_password_rejects_empty_password() -> None:
     with pytest.raises(ValueError, match="Password cannot be empty"):
         hash_password("")
 
-
+@pytest.mark.unit
 def test_hash_password_rejects_too_long_password() -> None:
     with pytest.raises(ValueError, match="Password exceeds maximum allowed length"):
         hash_password("x" * 129)
 
-
+@pytest.mark.unit
 def test_verify_password_successfully() -> None:
     password = "super-secret-password"
 
@@ -44,7 +43,7 @@ def test_verify_password_successfully() -> None:
 
     assert verify_password(password, hashed) is True
 
-
+@pytest.mark.unit
 def test_verify_password_rejects_invalid_password() -> None:
     password = "super-secret-password"
     wrong_password = "wrong-password"
@@ -53,12 +52,12 @@ def test_verify_password_rejects_invalid_password() -> None:
 
     assert verify_password(wrong_password, hashed) is False
 
-
+@pytest.mark.unit
 def test_verify_password_rejects_invalid_hash() -> None:
     assert verify_password("super-secret-password", "not-a-valid-argon2-hash") is False
     assert needs_rehash("not-a-valid-argon2-hash") is False
 
-
+@pytest.mark.unit
 def test_factory_allows_custom_parameters() -> None:
     custom_hasher = get_password_hasher(
         time_cost=1,
@@ -73,7 +72,7 @@ def test_factory_allows_custom_parameters() -> None:
     assert hashed.startswith("$argon2id$")
     assert custom_hasher.verify(hashed, "custom-password") is True
 
-
+@pytest.mark.unit
 def test_needs_rehash_detects_outdated_hash() -> None:
     password = "super-secret-password"
     current_hasher = get_password_hasher(
@@ -97,7 +96,7 @@ def test_needs_rehash_detects_outdated_hash() -> None:
     assert needs_rehash(legacy_hash, hasher=current_hasher) is True
     assert verify_password(password, legacy_hash, hasher=current_hasher) is True
 
-
+@pytest.mark.unit
 def test_verify_password_works_with_custom_hasher() -> None:
     password = "custom-password"
     custom_hasher = get_password_hasher(

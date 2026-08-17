@@ -5,7 +5,7 @@ from typing import Final
 from argon2 import PasswordHasher, Type
 from argon2.exceptions import InvalidHashError, VerificationError
 
-from app.settings import AuthSettings, get_settings
+from auth_app.settings import AuthSettings, get_settings
 
 _DEFAULT_ARGON2_TYPE: Final[Type] = Type.ID
 
@@ -35,7 +35,8 @@ def hash_password(password: str, *, hasher: PasswordHasher | None = None) -> str
     return (hasher or get_password_hasher()).hash(password)
 
 
-def verify_password(password: str, password_hash: str, *, hasher: PasswordHasher | None = None) -> bool:
+def verify_password(password: str, password_hash: str, *,
+                    hasher: PasswordHasher | None = None) -> bool:
     """Verifies whether a plaintext password matches a stored Argon2 hash."""
     if not password or len(password) > 128:
         return False

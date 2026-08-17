@@ -81,3 +81,25 @@ def test_needs_rehash_detects_outdated_hash() -> None:
 
     assert current_pm.needs_rehash(legacy_hash) is True
     assert current_pm.verify_password(password, legacy_hash) is True
+
+
+def test_none_hash_needs_rehash(fast_pm: PasswordManager) -> None:
+    assert fast_pm.needs_rehash(None) is False
+
+def test_non_string_hash_needs_rehash(fast_pm: PasswordManager) -> None:
+    assert fast_pm.needs_rehash(12345) is False
+
+def test_none_password_verification(fast_pm: PasswordManager) -> None:
+    assert fast_pm.verify_password(None, "somehash") is False
+
+
+def test_none_hash_password_verification(fast_pm: PasswordManager) -> None:
+    assert fast_pm.verify_password("password", None) is False
+
+
+def test_non_string_password_verification(fast_pm: PasswordManager) -> None:
+    assert fast_pm.verify_password("password", 12345) is False
+
+
+def test_non_string_hash_password_verification(fast_pm: PasswordManager) -> None:
+    assert fast_pm.verify_password("password", object()) is False

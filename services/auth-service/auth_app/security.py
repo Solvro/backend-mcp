@@ -31,18 +31,22 @@ class PasswordManager:
         return self._hasher.hash(password)
 
     def verify_password(self, password: str, password_hash: str) -> bool:
-        if not password or len(password) > 128:
+        if not isinstance(password_hash, str):
+            return False
+        if not isinstance(password, str) or not password or len(password) > 128:
             return False
         try:
             self._hasher.verify(password_hash, password)
             return True
-        except (InvalidHashError, VerificationError):
+        except (InvalidHashError, VerificationError, TypeError, AttributeError):
             return False
 
     def needs_rehash(self, password_hash: str) -> bool:
+        if not isinstance(password_hash, str):
+            return False
         try:
-            return bool(self._hasher.check_needs_rehash(password_hash))
-        except InvalidHashError:
+            return self._hasher.check_needs_rehash(password_hash)
+        except (InvalidHashError, TypeError, AttributeError):
             return False
 
 password_manager = PasswordManager()

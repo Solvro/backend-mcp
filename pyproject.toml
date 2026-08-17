@@ -5,7 +5,6 @@ description = "Backend for internal MCP Solvro server."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "argon2-cffi>=25.1.0",
     "ruff>=0.16.1",
 ]
 

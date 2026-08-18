@@ -1,6 +1,6 @@
-from common.context import RequestContext
 from common.exceptions_handlers import register_exception_handlers
 from common.logging import setup_logging
+from common.middleware import setup_middleware
 from common.rate_limit import rate_limit
 from fastapi import Depends, FastAPI
 
@@ -12,7 +12,7 @@ setup_logging(service_name="auth-service", log_level=settings.log_level)
 
 app = FastAPI(title="ml-mcp-backend · auth-service", version="0.1.0")
 
-app.add_middleware(RequestContext)
+setup_middleware(app, get_settings())
 
 register_exception_handlers(app)
 

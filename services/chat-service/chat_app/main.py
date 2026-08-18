@@ -2,9 +2,9 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from common.context import RequestContext
 from common.exceptions_handlers import register_exception_handlers
 from common.logging import setup_logging
+from common.middleware import setup_middleware
 from common.mongo import close_mongo_client, create_indexes
 from common.rate_limit import rate_limit
 from fastapi import Depends, FastAPI
@@ -34,7 +34,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="ml-mcp-backend - chat-service", version="0.1.0", lifespan=lifespan)
 
-app.add_middleware(RequestContext)
+setup_middleware(app, get_settings())
 
 register_exception_handlers(app)
 

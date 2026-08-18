@@ -18,7 +18,7 @@ class RequestContext:
     for each incoming HTTP request.
 
     Sets request and trace IDs in context variables.
-    Session and user IDs, when available, are read from context variables.
+    Session and user IDs, when available, are read or set by service layers.
     """
     def __init__(self, app: Callable):
         self.app = app
@@ -79,8 +79,6 @@ class RequestContext:
                     "path": path,
                     "status": response_status,
                     "process_time": round(process_ms, 2),
-                    "request_id": request_id_var.get(),
-                    "trace_id": trace_id_var.get(),
                 }
             )
 

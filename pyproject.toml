@@ -12,7 +12,7 @@ dependencies = [
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "W"]
+select = ["E", "F", "I", "N", "W", "T"]
 ignore = []
 
 [tool.ruff.format]

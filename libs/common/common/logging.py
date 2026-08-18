@@ -36,6 +36,10 @@ class JsonFormatter(logging.Formatter):
         if (usr_id := user_id_var.get()) is not None:
             log_record["user_id"] = usr_id
 
+        for key in ["method", "path", "status", "process_time"]:
+            if hasattr(record, key):
+                log_record[key] = getattr(record, key)
+
         if record.exc_info:
             log_record["exception"] = self.formatException(record.exc_info)
 
@@ -43,6 +47,22 @@ class JsonFormatter(logging.Formatter):
 
 
 def setup_logging(service_name: str, log_level: str = "INFO"):
+    """
+    Sets up logging configuration with a JSON formatter
+    and context variable support.
+
+    Components:
+    - Root logger: Configured to log messages at the specified log level.
+    - Uvicorn logger: Configured to log messages at the specified log level
+    and propagate
+        to the root logger.
+    - Uvicorn access logger: Configured to log messages at the specified
+    log level and not propagate to the root logger.
+
+    Args:
+    - service_name (str): The name of the service for logging purposes.
+    - log_level (str): The logging level (default: "INFO").
+    """
     root_logger = logging.getLogger()
     root_logger.setLevel(log_level)
 
@@ -62,4 +82,4 @@ def setup_logging(service_name: str, log_level: str = "INFO"):
     uvicorn_access_logger = logging.getLogger("uvicorn.access")
     uvicorn_access_logger.setLevel(log_level)
     uvicorn_access_logger.handlers.clear()
-    uvicorn_access_logger.propagate = True
+    uvicorn_access_logger.propagate = False

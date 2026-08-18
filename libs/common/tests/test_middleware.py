@@ -75,6 +75,47 @@ def test_cors_middleware_with_unauthorized_origin(settings):
 
 
 @pytest.mark.unit
+def test_cors_preflight_from_disallowed_origin_is_blocked(settings):
+    app = FastAPI()
+    setup_middleware(app, settings)
+
+    @app.get("/test")
+    async def test_endpoint():
+        return {"status": "ok"}
+
+    client = TestClient(app)
+
+    response = client.options("/test", headers={
+        "Origin": "http://unauthorized",
+        "Access-Control-Request-Method": "GET",
+    })
+
+    assert response.status_code == 400
+    assert response.headers.get("access-control-allow-origin") is None
+
+
+@pytest.mark.unit
+def test_cors_preflight_from_allowed_origin_is_permitted(settings):
+    app = FastAPI()
+    setup_middleware(app, settings)
+
+    @app.get("/test")
+    async def test_endpoint():
+        return {"status": "ok"}
+
+    client = TestClient(app)
+
+    response = client.options("/test", headers={
+        "Origin": "http://localhost:3000",
+        "Access-Control-Request-Method": "GET",
+    })
+
+    assert response.status_code == 200
+    assert response.headers.get(
+        "access-control-allow-origin") == "http://localhost:3000"
+
+
+@pytest.mark.unit
 def test_request_id_is_propagated(settings):
     app = FastAPI()
     setup_middleware(app, settings)

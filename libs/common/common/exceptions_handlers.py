@@ -31,6 +31,7 @@ def build_rfc7807_response(
     title: str,
     type_uri: str,
     detail: Any,
+    headers: dict[str, str] | None = None,
 ) -> JSONResponse:
     """Constructs a strict RFC 7807 compliant JSON response."""
     content = {
@@ -44,6 +45,7 @@ def build_rfc7807_response(
         status_code=status,
         content=content,
         media_type="application/problem+json",
+        headers=headers,
     )
 
 
@@ -71,6 +73,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             title=exc.title,
             type_uri=exc.type_uri,
             detail=exc.detail,
+            headers=exc.headers,
         )
 
     @app.exception_handler(RequestValidationError)

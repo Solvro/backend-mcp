@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 from common.settings import CommonSettings
 
@@ -13,10 +13,18 @@ class AppError(Exception):
     title: str = "Internal Server Error"
     status_code: int = 500
     detail: Any = "An unexpected error occurred."
+    headers: dict[str, str] | None = None
 
-    def __init__(self, detail: Optional[Any] = None):
+    def __init__(
+        self,
+        detail: Any | None = None,
+        *,
+        headers: dict[str, str] | None = None,
+    ):
         if detail is not None:
             self.detail = detail
+        if headers is not None:
+            self.headers = headers
         super().__init__(str(self.detail))
 
 

@@ -21,6 +21,10 @@ class CommonSettings(BaseSettings):
         default_factory=lambda: get_secrets_provider().get("REDIS_URL", ""),
     )
     redis_key_prefix: str = "mcp"
+
+    rate_limit_enabled: bool = True
+    rate_limit: int = 60
+    rate_limit_window_seconds: int = 60
     mongo_uri: str = Field(
         default_factory=lambda: get_secrets_provider().get("MONGO_URI", ""),
     )

@@ -14,6 +14,9 @@ class AuthSettings(CommonSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
 
+    rate_limit: int = 5
+    rate_limit_window_seconds: int = 60
+
 
 @lru_cache
 def get_settings() -> AuthSettings:

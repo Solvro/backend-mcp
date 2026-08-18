@@ -10,6 +10,9 @@ class ChatSettings(CommonSettings):
 
     mcp_server_url: str = "http://localhost:8005/mcp"
 
+    rate_limit: int = 30
+    rate_limit_window_seconds: int = 60
+
     chat_input_min_length: int = 1
     chat_input_max_length: int = 2000
 

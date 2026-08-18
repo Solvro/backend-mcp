@@ -1,19 +1,27 @@
+import time
+from dataclasses import dataclass
 from enum import IntEnum, StrEnum
+from math import ceil
+from uuid import uuid4
 
 from redis.asyncio import ConnectionPool, Redis
+from redis.commands.core import AsyncScript
 
+from common.redis_scripts import RATE_LIMITING_SCRIPT
 from common.settings import CommonSettings
 
 _client: Redis | None = None
+_rate_limit_script: AsyncScript | None = None
 _key_prefix: str | None = None
 
 
 def get_redis(settings: CommonSettings | None = None) -> Redis:
-    global _client
+    global _client, _rate_limit_script
     if _client is None:
         s = settings or CommonSettings()
         pool = ConnectionPool.from_url(s.redis_url, decode_responses=True)
         _client = Redis.from_pool(pool)
+        _rate_limit_script = _client.register_script(RATE_LIMITING_SCRIPT)
     return _client
 
 
@@ -23,10 +31,57 @@ async def check_redis() -> bool:
 
 
 async def close_redis() -> None:
-    global _client
+    global _client, _rate_limit_script
     if _client is not None:
         await _client.aclose()
     _client = None
+    _rate_limit_script = None
+
+
+@dataclass(frozen=True)
+class RateLimitResult:
+    allowed: bool
+    limit: int
+    remaining: int
+    reset_seconds: int
+    retry_after: int
+
+
+async def check_rate_limit(
+    scope: str,
+    identifier: str,
+    *,
+    limit: int,
+    window_seconds: int,
+    settings: CommonSettings | None = None,
+) -> RateLimitResult:
+    settings = settings or CommonSettings()
+    get_redis(settings)
+    assert _rate_limit_script is not None
+
+    key = rate_limit_key(f"{scope}:{identifier}", settings=settings)
+
+    now_ms = int(time.time() * 1000)
+    window_ms = window_seconds * 1000
+    member = f"{now_ms}:{uuid4().hex}"
+
+    allowed, count, oldest_ms = await _rate_limit_script(
+        keys=[key],
+        args=[now_ms, window_ms, limit, member],
+    )
+
+    count = int(count)
+    reset_ms = int(oldest_ms) + window_ms
+    reset_seconds = max(0, ceil((reset_ms - now_ms) / 1000))
+    remaining = max(0, limit - count)
+
+    return RateLimitResult(
+        allowed=bool(allowed),
+        limit=limit,
+        remaining=remaining,
+        reset_seconds=reset_seconds,
+        retry_after=reset_seconds if not allowed else 0,
+    )
 
 
 class Namespace(StrEnum):

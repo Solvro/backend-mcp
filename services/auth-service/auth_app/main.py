@@ -1,11 +1,14 @@
 from common.exceptions_handlers import register_exception_handlers
 from common.logging import setup_logging
 from common.middleware import setup_middleware
-from fastapi import FastAPI
+from common.rate_limit import rate_limit
+from fastapi import Depends, FastAPI
 
 from auth_app.settings import get_settings
 
-setup_logging(service_name="auth-service", log_level=get_settings().log_level)
+settings = get_settings()
+
+setup_logging(service_name="auth-service", log_level=settings.log_level)
 
 app = FastAPI(title="ml-mcp-backend · auth-service", version="0.1.0")
 
@@ -16,4 +19,10 @@ register_exception_handlers(app)
 
 @app.get("/health")
 async def health() -> dict[str, str]:
+    return {"status": "ok", "service": "auth-service"}
+
+
+# Placeholder endpoint until real implementation
+@app.post("/auth/login", dependencies=[Depends(rate_limit("auth:login", settings=settings))])
+async def login() -> dict[str, str]:
     return {"status": "ok", "service": "auth-service"}

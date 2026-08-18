@@ -207,6 +207,11 @@ def test_oversized_body_returns_413():
 
     assert response.status_code == 413
     assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["content-type"] == "application/problem+json"
+    body = response.json()
+    assert body["status"] == 413
+    assert body["title"] == "Payload Too Large"
+    assert "request_id" in body
 
 
 @pytest.mark.unit

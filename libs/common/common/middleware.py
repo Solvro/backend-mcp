@@ -4,10 +4,12 @@ import uuid
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.responses import JSONResponse
+from starlette.requests import Request
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from common.context import request_id_var, session_id_var, trace_id_var, user_id_var
+from common.errors import PayloadTooLargeError
+from common.exceptions_handlers import build_rfc7807_response
 from common.settings import CommonSettings
 
 logger = logging.getLogger(__name__)
@@ -191,9 +193,16 @@ class BodySizeLimitMiddleware:
 
     @staticmethod
     async def _reject(scope: Scope, receive: Receive, send: Send) -> None:
-        response = JSONResponse(
-            {"detail": "Request body too large."},
-            status_code=413,
+        request = Request(scope, receive)
+        request.state.request_id = request_id_var.get()
+        error = PayloadTooLargeError()
+        response = build_rfc7807_response(
+            request=request,
+            status=error.status_code,
+            title=error.title,
+            type_uri=error.type_uri,
+            detail=error.detail,
+            headers=error.headers,
         )
         await response(scope, receive, send)
 

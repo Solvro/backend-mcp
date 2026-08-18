@@ -61,3 +61,10 @@ class NotFoundError(AppError):
     title = "Resource Not Found"
     status_code = 404
     detail = "The requested resource could not be found."
+
+
+class PayloadTooLargeError(AppError):
+    type_uri = f"{ERROR_TYPE_BASE_URL}/payload-too-large"
+    title = "Payload Too Large"
+    status_code = 413
+    detail = "The request body exceeds the maximum allowed size."

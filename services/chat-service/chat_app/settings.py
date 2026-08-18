@@ -10,6 +10,9 @@ class ChatSettings(CommonSettings):
 
     mcp_server_url: str = "http://localhost:8005/mcp"
 
+    chat_input_min_length: int = 1
+    chat_input_max_length: int = 2000
+
     openai_api_key: str = Field(
         default_factory=lambda: get_secrets_provider().get("OPENAI_API_KEY", ""),
     )

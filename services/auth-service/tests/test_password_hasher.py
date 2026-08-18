@@ -34,7 +34,7 @@ def test_hash_password_rejects_empty_password(fast_pm: PasswordManager) -> None:
 @pytest.mark.unit
 def test_hash_password_rejects_too_long_password(fast_pm: PasswordManager) -> None:
     with pytest.raises(ValueError, match="Password exceeds maximum allowed length"):
-        fast_pm.hash_password("x" * 129)
+        fast_pm.hash_password("x" * (fast_pm._settings.max_password_length + 1))
 
 
 @pytest.mark.unit
@@ -82,24 +82,26 @@ def test_needs_rehash_detects_outdated_hash() -> None:
     assert current_pm.needs_rehash(legacy_hash) is True
     assert current_pm.verify_password(password, legacy_hash) is True
 
-
+@pytest.mark.unit
 def test_none_hash_needs_rehash(fast_pm: PasswordManager) -> None:
     assert fast_pm.needs_rehash(None) is False
 
+@pytest.mark.unit
 def test_non_string_hash_needs_rehash(fast_pm: PasswordManager) -> None:
     assert fast_pm.needs_rehash(12345) is False
 
+@pytest.mark.unit
 def test_none_password_verification(fast_pm: PasswordManager) -> None:
     assert fast_pm.verify_password(None, "somehash") is False
 
-
+@pytest.mark.unit
 def test_none_hash_password_verification(fast_pm: PasswordManager) -> None:
     assert fast_pm.verify_password("password", None) is False
 
-
+@pytest.mark.unit
 def test_non_string_password_verification(fast_pm: PasswordManager) -> None:
     assert fast_pm.verify_password("password", 12345) is False
 
-
+@pytest.mark.unit
 def test_non_string_hash_password_verification(fast_pm: PasswordManager) -> None:
     assert fast_pm.verify_password("password", object()) is False

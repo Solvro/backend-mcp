@@ -19,6 +19,7 @@ class AuthSettings(CommonSettings):
     argon2_parallelism: int = 4
     argon2_hash_len: int = 32
     argon2_salt_len: int = 16
+    max_password_length: int = 128
 
 
 @lru_cache

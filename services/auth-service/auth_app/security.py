@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Final
 
 from argon2 import PasswordHasher, Type
@@ -13,27 +14,31 @@ class PasswordManager:
     """Manages password hashing and verification using Argon2."""
 
     def __init__(self, settings: AuthSettings | None = None):
-        s = settings or get_settings()
+        self._settings = settings or get_settings()
         self._hasher = PasswordHasher(
-            time_cost=s.argon2_time_cost,
-            memory_cost=s.argon2_memory_cost,
-            parallelism=s.argon2_parallelism,
-            hash_len=s.argon2_hash_len,
-            salt_len=s.argon2_salt_len,
+            time_cost=self._settings.argon2_time_cost,
+            memory_cost=self._settings.argon2_memory_cost,
+            parallelism=self._settings.argon2_parallelism,
+            hash_len=self._settings.argon2_hash_len,
+            salt_len=self._settings.argon2_salt_len,
             type=_DEFAULT_ARGON2_TYPE,
         )
 
     def hash_password(self, password: str) -> str:
         if not password:
             raise ValueError("Password cannot be empty.")
-        if len(password) > 128:
+        if len(password) > self._settings.max_password_length:
             raise ValueError("Password exceeds maximum allowed length.")
         return self._hasher.hash(password)
 
     def verify_password(self, password: str, password_hash: str) -> bool:
         if not isinstance(password_hash, str):
             return False
-        if not isinstance(password, str) or not password or len(password) > 128:
+        if (
+            not isinstance(password, str)
+            or not password
+            or len(password) > self._settings.max_password_length
+        ):
             return False
         try:
             self._hasher.verify(password_hash, password)
@@ -49,4 +54,7 @@ class PasswordManager:
         except (InvalidHashError, TypeError, AttributeError):
             return False
 
-password_manager = PasswordManager()
+
+@lru_cache(maxsize=1)
+def get_password_manager() -> PasswordManager:
+    return PasswordManager()

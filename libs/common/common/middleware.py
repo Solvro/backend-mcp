@@ -91,52 +91,6 @@ class RequestContext:
             user_id_var.reset(t4)
 
 
-class SecurityHeadersMiddleware:
-    """
-    Middleware that attaches a standard set of security headers to every
-    HTTP response:
-
-    - Strict-Transport-Security (HSTS)
-    - X-Content-Type-Options
-    - X-Frame-Options
-    - Referrer-Policy
-    """
-    def __init__(self, app: ASGIApp, settings: CommonSettings) -> None:
-        self.app = app
-        self._headers = self._build_headers(settings)
-
-    @staticmethod
-    def _build_headers(settings: CommonSettings) -> list[tuple[bytes, bytes]]:
-        hsts = f"max-age={settings.hsts_max_age}"
-        if settings.hsts_include_subdomains:
-            hsts += "; includeSubDomains"
-        if settings.hsts_preload:
-            hsts += "; preload"
-
-        return [
-            (b"strict-transport-security", hsts.encode()),
-            (b"x-content-type-options", settings.content_type_options.encode()),
-            (b"x-frame-options", settings.frame_options.encode()),
-            (b"referrer-policy", settings.referrer_policy.encode()),
-        ]
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http":
-            await self.app(scope, receive, send)
-            return
-
-        async def send_wrapper(message: Message) -> None:
-            if message["type"] == "http.response.start":
-                headers = message.setdefault("headers", [])
-                existing = {name.lower() for name, _ in headers}
-                for name, value in self._headers:
-                    if name not in existing:
-                        headers.append((name, value))
-            await send(message)
-
-        await self.app(scope, receive, send_wrapper)
-
-
 class _BodyTooLargeError(Exception):
     """Raised internally when a streamed request body exceeds the limit."""
 
@@ -218,18 +172,17 @@ def setup_middleware(app: FastAPI, settings: CommonSettings) -> None:
 
     Resulting order, outermost first:
     1. RequestContext        - request/trace IDs, timing, access log
-    2. SecurityHeadersMiddleware - security headers on every response
-    3. CORSMiddleware        - origin enforcement
-    4. BodySizeLimitMiddleware - rejects oversized bodies with 413
+    2. CORSMiddleware        - origin enforcement
+    3. BodySizeLimitMiddleware - rejects oversized bodies with 413
 
     Placing BodySizeLimitMiddleware innermost means its 413 response still
-    travels back out through CORS, the security headers, and RequestContext,
-    so it is logged and carries the same headers as any other response.
+    travels back out through CORS and RequestContext, so it is logged and
+    carries the same request-id/CORS headers as any other response.
 
     Args:
         - app (FastAPI): The FastAPI application instance.
-        - settings (CommonSettings): The settings object containing CORS,
-        security header, and body size configuration.
+        - settings (CommonSettings): The settings object containing CORS
+        and body size configuration.
     """
     app.add_middleware(
         BodySizeLimitMiddleware,
@@ -244,8 +197,5 @@ def setup_middleware(app: FastAPI, settings: CommonSettings) -> None:
         allow_headers=settings.cors_allow_headers,
         expose_headers=settings.cors_expose_headers
     )
-
-    if settings.security_headers_enabled:
-        app.add_middleware(SecurityHeadersMiddleware, settings=settings)
 
     app.add_middleware(RequestContext)

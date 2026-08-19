@@ -60,12 +60,4 @@ class CommonSettings(BaseSettings):
         "x-user-id",
     ]
 
-    security_headers_enabled: bool = True
-    hsts_max_age: int = 31536000
-    hsts_include_subdomains: bool = True
-    hsts_preload: bool = False
-    frame_options: str = "DENY"
-    content_type_options: str = "nosniff"
-    referrer_policy: str = "strict-origin-when-cross-origin"
-
     max_request_body_size: int = 1 * 1024 * 1024

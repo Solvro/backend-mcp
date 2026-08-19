@@ -31,9 +31,7 @@ class Message(BaseModel):
 
 
 class Conversation(BaseModel):
-    """Session metadata document in the ``conversations`` collection."""
-
-    model_config = ConfigDict(use_enum_values=True)
+    """Session metadata document in the conversation collection."""
 
     session_id: str = Field(default_factory=lambda: uuid4().hex)
     user_id: str

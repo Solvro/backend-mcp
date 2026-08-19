@@ -27,12 +27,15 @@ dev = [
     "ruff>=0.16.1",
     "httpx2>=2.9.1",
     "httpx>=0.28.1",
+    "mongomock-motor>=0.0.36",
+    "pytest-asyncio>=1.4.0",
 ]
 
 [tool.uv.workspace]
 members = ["services/*", "libs/*"]
 
 [tool.pytest.ini_options]
+asyncio_mode = "auto"
 markers = [
     "unit: marks unit tests",
     "e2e: marks end-to-end tests",

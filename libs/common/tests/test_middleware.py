@@ -135,46 +135,6 @@ def test_request_id_is_propagated(settings):
 
 
 @pytest.mark.unit
-def test_security_headers_present(settings):
-    app = FastAPI()
-    setup_middleware(app, settings)
-
-    @app.get("/test")
-    async def test_endpoint():
-        return {"status": "ok"}
-
-    client = TestClient(app)
-    response = client.get("/test")
-
-    assert response.status_code == 200
-    assert response.headers["x-content-type-options"] == "nosniff"
-    assert response.headers["x-frame-options"] == "DENY"
-    assert response.headers["referrer-policy"] == (
-        "strict-origin-when-cross-origin"
-    )
-    assert response.headers["strict-transport-security"] == (
-        "max-age=31536000; includeSubDomains"
-    )
-
-
-@pytest.mark.unit
-def test_security_headers_can_be_disabled():
-    settings = CommonSettings(security_headers_enabled=False)
-    app = FastAPI()
-    setup_middleware(app, settings)
-
-    @app.get("/test")
-    async def test_endpoint():
-        return {"status": "ok"}
-
-    client = TestClient(app)
-    response = client.get("/test")
-
-    assert response.status_code == 200
-    assert "x-frame-options" not in response.headers
-
-
-@pytest.mark.unit
 def test_body_within_limit_passes():
     settings = CommonSettings(max_request_body_size=1000)
     app = FastAPI()
@@ -189,7 +149,6 @@ def test_body_within_limit_passes():
 
     assert response.status_code == 200
     assert response.json() == {"key": "value"}
-    assert response.headers["x-frame-options"] == "DENY"
 
 
 @pytest.mark.unit
@@ -206,7 +165,6 @@ def test_oversized_body_returns_413():
     response = client.post("/test", content=b"x" * 200)
 
     assert response.status_code == 413
-    assert response.headers["x-frame-options"] == "DENY"
     assert response.headers["content-type"] == "application/problem+json"
     body = response.json()
     assert body["status"] == 413

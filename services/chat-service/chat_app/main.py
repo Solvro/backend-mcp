@@ -6,6 +6,7 @@ from common.exceptions_handlers import register_exception_handlers
 from common.logging import setup_logging
 from common.middleware import setup_middleware
 from common.mongo import close_mongo_client, create_indexes
+from common.observability import get_langfuse, shutdown_langfuse
 from common.rate_limit import rate_limit
 from fastapi import Depends, FastAPI
 
@@ -28,7 +29,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             logger.warning("Mongo index bootstrap failed", exc_info=True)
     else:
         logger.info("MONGO_URI not set — skipping Mongo index bootstrap")
+    get_langfuse(settings)
     yield
+    shutdown_langfuse()
     await close_mongo_client()
 
 

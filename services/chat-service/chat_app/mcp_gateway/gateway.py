@@ -179,6 +179,19 @@ class KnowledgeGraphGateway:
         await self.aclose()
 
 
+async def check_mcp(
+    transport: Any,
+    *,
+    init_timeout: float = 5.0,
+    timeout: float = 5.0,
+) -> bool:
+    client = Client(transport, init_timeout=init_timeout)
+    async with asyncio.timeout(timeout):
+        async with client:
+            await client.ping()
+    return True
+
+
 async def _safe_close(client: Client) -> None:
     try:
         await client.__aexit__(None, None, None)

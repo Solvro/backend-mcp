@@ -15,6 +15,10 @@ class ChatSettings(CommonSettings):
     mcp_retry_base_delay: float = 0.2
     mcp_retry_max_delay: float = 2.0
 
+    mcp_breaker_enabled: bool = True
+    mcp_breaker_failure_threshold: int = 5
+    mcp_breaker_reset_timeout_seconds: float = 30.0
+
     rate_limit: int = 30
     rate_limit_window_seconds: int = 60
 

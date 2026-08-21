@@ -1,17 +1,27 @@
 import asyncio
 import logging
+import math
 import random
 from typing import Any
 
 import httpx
-from common.errors import UpstreamError
+from common.errors import ServiceUnavailableError, UpstreamError
 from fastmcp import Client
 
+from chat_app.mcp_gateway.circuit_breaker import CircuitBreaker
 from chat_app.settings import ChatSettings
 
 logger = logging.getLogger(__name__)
 
 TOOL_NAME = "knowledge_graph_tool"
+
+NO_KNOWLEDGE_SENTINEL = "W bazie danych nie ma informacji"
+_EMPTY_RESULTS = frozenset({"", "[]", "{}"})
+
+
+def is_no_knowledge(text: str) -> bool:
+    stripped = text.strip()
+    return stripped == NO_KNOWLEDGE_SENTINEL or stripped in _EMPTY_RESULTS
 
 _TRANSIENT_EXCEPTIONS: tuple[type[BaseException], ...] = (
     TimeoutError,
@@ -36,6 +46,7 @@ class KnowledgeGraphGateway:
         max_retries: int,
         retry_base_delay: float,
         retry_max_delay: float,
+        breaker: CircuitBreaker | None = None,
     ) -> None:
         self._transport = transport
         self._timeout = timeout
@@ -43,12 +54,19 @@ class KnowledgeGraphGateway:
         self._max_retries = max_retries
         self._retry_base_delay = retry_base_delay
         self._retry_max_delay = retry_max_delay
+        self._breaker = breaker
 
         self._client: Client | None = None
         self._lock = asyncio.Lock()
 
     @classmethod
     def from_settings(cls, settings: ChatSettings) -> "KnowledgeGraphGateway":
+        breaker = None
+        if settings.mcp_breaker_enabled:
+            breaker = CircuitBreaker(
+                failure_threshold=settings.mcp_breaker_failure_threshold,
+                reset_timeout=settings.mcp_breaker_reset_timeout_seconds,
+            )
         return cls(
             settings.mcp_server_url,
             timeout=settings.mcp_timeout_seconds,
@@ -56,9 +74,26 @@ class KnowledgeGraphGateway:
             max_retries=settings.mcp_max_retries,
             retry_base_delay=settings.mcp_retry_base_delay,
             retry_max_delay=settings.mcp_retry_max_delay,
+            breaker=breaker,
         )
 
     async def query(self, user_input: str, trace_id: str | None = None) -> str:
+        if self._breaker is not None and not self._breaker.allow():
+            retry_after = max(1, math.ceil(self._breaker.retry_after()))
+            logger.warning("MCP circuit open, failing fast (retry_after=%ds)", retry_after)
+            raise ServiceUnavailableError(headers={"Retry-After": str(retry_after)})
+
+        try:
+            result = await self._run_with_retry(user_input, trace_id)
+        except UpstreamError:
+            if self._breaker is not None:
+                self._breaker.record_failure()
+            raise
+        if self._breaker is not None:
+            self._breaker.record_success()
+        return result
+
+    async def _run_with_retry(self, user_input: str, trace_id: str | None) -> str:
         attempt = 0
         while True:
             try:
@@ -80,8 +115,12 @@ class KnowledgeGraphGateway:
                     attempt += 1
                     continue
                 await self._drop_client()
+                if transient:
+                    raise ServiceUnavailableError(
+                        "The knowledge graph service is unavailable."
+                    ) from exc
                 raise UpstreamError(
-                    "The knowledge graph service is unavailable."
+                    "The knowledge graph service returned an error."
                 ) from exc
 
     async def _call_tool_once(self, user_input: str, trace_id: str | None) -> str:

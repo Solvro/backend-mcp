@@ -48,6 +48,8 @@ class CommonSettings(BaseSettings):
     db_pool_recycle: int = 1800
     db_echo: bool = False
 
+    health_probe_timeout_seconds: float = 3.0
+
     mongo_db_name: str = "mcp_backend"
     mongo_max_pool_size: int = 100
     mongo_min_pool_size: int = 0

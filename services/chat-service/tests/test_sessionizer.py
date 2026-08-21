@@ -94,6 +94,26 @@ async def test_get_context_window_formats_last_n(repo):
 
 
 @pytest.mark.unit
+async def test_get_context_window_applies_char_budget(repo):
+    conv = await repo.create_conversation("user-1")
+    await _seed(repo, conv.session_id, 3)
+
+    window = await repo.get_context_window(
+        conv.session_id, max_messages=6, max_chars=len("user: msg-2")
+    )
+
+    assert window == "user: msg-2"
+
+
+@pytest.mark.unit
+async def test_get_context_window_zero_messages_is_empty(repo):
+    conv = await repo.create_conversation("user-1")
+    await _seed(repo, conv.session_id, 3)
+
+    assert await repo.get_context_window(conv.session_id, max_messages=0) == ""
+
+
+@pytest.mark.unit
 async def test_history_is_scoped_by_session(repo):
     a = await repo.create_conversation("user-1")
     b = await repo.create_conversation("user-1")

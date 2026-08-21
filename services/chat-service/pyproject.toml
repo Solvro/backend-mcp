@@ -13,6 +13,7 @@ dependencies = [
     "motor>=3.0.0",
     "redis>=5.0.0",
     "common",
+    "langfuse>=3.6.2",
 ]
 
 [tool.hatch.build.targets.wheel]

@@ -50,6 +50,9 @@ class CommonSettings(BaseSettings):
 
     health_probe_timeout_seconds: float = 3.0
 
+    metrics_enabled: bool = True
+    metrics_endpoint: str = "/metrics"
+
     mongo_db_name: str = "mcp_backend"
     mongo_max_pool_size: int = 100
     mongo_min_pool_size: int = 0

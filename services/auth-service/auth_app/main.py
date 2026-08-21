@@ -1,6 +1,7 @@
 from common.exceptions_handlers import register_exception_handlers
 from common.health import build_health_router
 from common.logging import setup_logging
+from common.metrics import setup_metrics
 from common.middleware import setup_middleware
 from common.rate_limit import rate_limit
 from fastapi import Depends, FastAPI
@@ -17,6 +18,8 @@ app = FastAPI(title="ml-mcp-backend · auth-service", version="0.1.0")
 setup_middleware(app, get_settings())
 
 register_exception_handlers(app)
+
+setup_metrics(app, get_settings())
 
 app.include_router(
     build_health_router(

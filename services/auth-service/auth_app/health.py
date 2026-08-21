@@ -1,8 +1,3 @@
-"""Dependency wiring for the auth-service health endpoints.
-
-Postgres and Redis are required: if either is down the service is not ready.
-"""
-
 from common.db import check_database
 from common.health import Dependency
 from common.redis import check_redis

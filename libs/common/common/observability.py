@@ -1,6 +1,11 @@
+import hashlib
 import logging
+import secrets
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
+from common.context import trace_id_var
 from common.settings import CommonSettings
 
 if TYPE_CHECKING:
@@ -10,6 +15,17 @@ logger = logging.getLogger(__name__)
 
 _client: "Langfuse | None" = None
 _initialized = False
+
+
+def new_trace_id(seed: str | None = None) -> str:
+    try:
+        from langfuse import Langfuse
+
+        return Langfuse.create_trace_id(seed=seed)
+    except ImportError:
+        if seed is not None:
+            return hashlib.sha256(seed.encode("utf-8")).hexdigest()[:32]
+        return secrets.token_hex(16)
 
 
 def get_langfuse(settings: CommonSettings | None = None) -> "Langfuse | None":
@@ -66,3 +82,42 @@ def _reset_for_tests(client: Any = None, initialized: bool = False) -> None:
     global _client, _initialized
     _client = client
     _initialized = initialized
+
+
+@contextmanager
+def use_trace_id(trace_id: str) -> Iterator[str]:
+    token = trace_id_var.set(trace_id)
+    try:
+        yield trace_id
+    finally:
+        trace_id_var.reset(token)
+
+
+@contextmanager
+def start_turn_trace(
+    trace_id: str,
+    *,
+    name: str = "chat-turn",
+    session_id: str | None = None,
+    tags: list[str] | None = None,
+    input: Any = None,
+    settings: CommonSettings | None = None,
+) -> Iterator[Any]:
+    with use_trace_id(trace_id):
+        client = get_langfuse(settings)
+        if client is None:
+            yield None
+            return
+
+        from langfuse import propagate_attributes
+
+        with (
+            client.start_as_current_observation(
+                name=name,
+                as_type="span",
+                trace_context={"trace_id": trace_id},
+                input=input,
+            ) as span,
+            propagate_attributes(session_id=session_id or trace_id, tags=tags),
+        ):
+            yield span

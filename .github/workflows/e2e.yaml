@@ -6,6 +6,7 @@ on:
 
 env:
   PYTHON_VERSION: "3.12"
+  JUST_VERSION: "1.43.1"
 
 jobs:
   e2e:
@@ -27,7 +28,11 @@ jobs:
           enable-cache: true
 
       - name: Install just
-        uses: extractions/setup-just@v2
+        uses: extractions/setup-just@v4
+        with:
+          just-version: ${{ env.JUST_VERSION }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install dependencies
         run: uv sync --all-packages --dev

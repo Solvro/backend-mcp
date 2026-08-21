@@ -34,6 +34,14 @@ class CommonSettings(BaseSettings):
             ),
     )
 
+    langfuse_secret_key: str = Field(
+        default_factory=lambda: get_secrets_provider().get("LANGFUSE_SECRET_KEY", ""),
+    )
+    langfuse_public_key: str = Field(
+        default_factory=lambda: get_secrets_provider().get("LANGFUSE_PUBLIC_KEY", ""),
+    )
+    langfuse_host: str = "https://cloud.langfuse.com"
+
     db_pool_size: int = 5
     db_max_overflow: int = 10
     db_pool_timeout: int = 30

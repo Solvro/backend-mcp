@@ -3,6 +3,7 @@ from chat_app.mcp_gateway.gateway import (
     NO_KNOWLEDGE_SENTINEL,
     TOOL_NAME,
     KnowledgeGraphGateway,
+    check_mcp,
     is_no_knowledge,
 )
 
@@ -12,5 +13,6 @@ __all__ = [
     "CircuitBreaker",
     "CircuitState",
     "KnowledgeGraphGateway",
+    "check_mcp",
     "is_no_knowledge",
 ]

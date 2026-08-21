@@ -1,9 +1,11 @@
 from common.exceptions_handlers import register_exception_handlers
+from common.health import build_health_router
 from common.logging import setup_logging
 from common.middleware import setup_middleware
 from common.rate_limit import rate_limit
 from fastapi import Depends, FastAPI
 
+from auth_app.health import build_dependencies
 from auth_app.settings import get_settings
 
 settings = get_settings()
@@ -16,10 +18,12 @@ setup_middleware(app, get_settings())
 
 register_exception_handlers(app)
 
-
-@app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok", "service": "auth-service"}
+app.include_router(
+    build_health_router(
+        service_name="auth-service",
+        dependencies_provider=lambda: build_dependencies(get_settings()),
+    )
+)
 
 
 # Placeholder endpoint until real implementation

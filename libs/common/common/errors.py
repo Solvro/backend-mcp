@@ -49,6 +49,13 @@ class UpstreamError(AppError):
     detail = "Error communicating with upstream service."
 
 
+class ServiceUnavailableError(UpstreamError):
+    type_uri = f"{ERROR_TYPE_BASE_URL}/service-unavailable"
+    title = "Service Unavailable"
+    status_code = 503
+    detail = "The upstream service is temporarily unavailable. Please try again shortly."
+
+
 class ValidationError(AppError):
     type_uri = f"{ERROR_TYPE_BASE_URL}/validation-error"
     title = "Validation Error"

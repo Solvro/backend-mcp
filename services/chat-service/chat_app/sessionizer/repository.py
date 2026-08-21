@@ -7,8 +7,14 @@ from chat_app.sessionizer.models import (
     MessageRole,
     utcnow,
 )
+from chat_app.sessionizer.windowing import (
+    DEFAULT_MAX_CHARS,
+    DEFAULT_MAX_MESSAGES,
+    ContextWindowPolicy,
+    build_context_window,
+)
 
-DEFAULT_CONTEXT_WINDOW: int = 6
+DEFAULT_CONTEXT_WINDOW: int = DEFAULT_MAX_MESSAGES
 
 _NO_ID = {"_id": 0}
 
@@ -77,9 +83,13 @@ class ConversationRepository:
         self,
         session_id: str,
         max_messages: int = DEFAULT_CONTEXT_WINDOW,
+        max_chars: int = DEFAULT_MAX_CHARS,
     ) -> str:
-        messages = await self.get_history(session_id, limit=max_messages)
-        return "\n".join(f"{msg.role}: {msg.content}" for msg in messages)
+        policy = ContextWindowPolicy(max_messages=max_messages, max_chars=max_chars)
+        if policy.max_messages == 0:
+            return ""
+        messages = await self.get_history(session_id, limit=policy.max_messages)
+        return build_context_window(messages, policy)
 
     async def list_by_user(
         self,

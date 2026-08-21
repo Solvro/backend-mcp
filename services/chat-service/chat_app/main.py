@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from common.exceptions_handlers import register_exception_handlers
 from common.health import build_health_router
 from common.logging import setup_logging
+from common.metrics import setup_metrics
 from common.middleware import setup_middleware
 from common.mongo import close_mongo_client, create_indexes
 from common.observability import get_langfuse, shutdown_langfuse
@@ -42,6 +43,8 @@ app = FastAPI(title="ml-mcp-backend - chat-service", version="0.1.0", lifespan=l
 setup_middleware(app, get_settings())
 
 register_exception_handlers(app)
+
+setup_metrics(app, get_settings())
 
 app.include_router(
     build_health_router(

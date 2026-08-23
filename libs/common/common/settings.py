@@ -22,6 +22,11 @@ class CommonSettings(BaseSettings):
     )
     redis_key_prefix: str = "mcp"
 
+    jwt_secret_key: str = Field(
+        default_factory=lambda: get_secrets_provider().get("JWT_SECRET_KEY", ""),
+    )
+    jwt_algorithm: str = "HS256"
+
     rate_limit_enabled: bool = True
     rate_limit: int = 60
     rate_limit_window_seconds: int = 60

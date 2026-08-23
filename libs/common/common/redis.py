@@ -1,5 +1,6 @@
 import time
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from enum import IntEnum, StrEnum
 from math import ceil
 from uuid import uuid4
@@ -88,6 +89,7 @@ class Namespace(StrEnum):
     RATE_LIMIT = "ratelimit"
     DENYLIST = "denylist"
     CACHE = "cache"
+    QUOTA = "quota"
 
 
 class TTL(IntEnum):
@@ -119,3 +121,55 @@ def denylist_key(jti: str, *, settings: CommonSettings | None = None) -> str:
 
 def cache_key(digest: str, *, settings: CommonSettings | None = None) -> str:
     return make_key(Namespace.CACHE, digest, settings=settings)
+
+
+def quota_key(
+    scope: str, identity: str, day: str, *, settings: CommonSettings | None = None
+) -> str:
+    return make_key(Namespace.QUOTA, scope, identity, day, settings=settings)
+
+
+@dataclass(frozen=True)
+class QuotaResult:
+    allowed: bool
+    limit: int
+    remaining: int
+    reset_seconds: int
+    retry_after: int
+
+
+def _seconds_until_utc_midnight(now: datetime) -> int:
+    tomorrow = (now + timedelta(days=1)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    return max(1, ceil((tomorrow - now).total_seconds()))
+
+
+async def check_daily_quota(
+    scope: str,
+    identity: str,
+    *,
+    limit: int,
+    now: datetime | None = None,
+    settings: CommonSettings | None = None,
+) -> QuotaResult:
+    redis = get_redis(settings)
+    now = now or datetime.now(timezone.utc)
+    day = now.strftime("%Y-%m-%d")
+    key = quota_key(scope, identity, day, settings=settings)
+    reset = _seconds_until_utc_midnight(now)
+
+    async with redis.pipeline(transaction=True) as pipe:
+        pipe.incr(key)
+        pipe.expire(key, reset)
+        count, _ = await pipe.execute()
+
+    count = int(count)
+    allowed = count <= limit
+    return QuotaResult(
+        allowed=allowed,
+        limit=limit,
+        remaining=max(0, limit - count),
+        reset_seconds=reset,
+        retry_after=reset if not allowed else 0,
+    )

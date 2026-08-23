@@ -25,6 +25,11 @@ class ChatSettings(CommonSettings):
     rate_limit: int = 30
     rate_limit_window_seconds: int = 60
 
+    chat_daily_quota_anonymous: int = 5
+    chat_daily_quota_authenticated: int = 8
+
+    anonymous_retention_days: int = 30
+
     chat_input_min_length: int = 1
     chat_input_max_length: int = 2000
 

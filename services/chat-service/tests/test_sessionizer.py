@@ -1,4 +1,5 @@
 import asyncio
+from datetime import timedelta
 
 import pytest
 from chat_app.sessionizer import (
@@ -11,11 +12,19 @@ from mongomock_motor import AsyncMongoMockClient
 
 pytestmark = pytest.mark.unit
 
+_TTL = timedelta(days=30)
+
 
 @pytest.fixture
 def repo() -> ConversationRepository:
     db = AsyncMongoMockClient()["mcp_backend_test"]
     return ConversationRepository(db)
+
+
+@pytest.fixture
+def repo_ttl() -> ConversationRepository:
+    db = AsyncMongoMockClient()["mcp_backend_test"]
+    return ConversationRepository(db, anonymous_ttl=_TTL)
 
 
 async def _seed(repo: ConversationRepository, session_id: str, count: int) -> None:
@@ -40,6 +49,17 @@ async def test_create_conversation_persists_and_is_retrievable(repo):
 @pytest.mark.unit
 async def test_get_conversation_missing_returns_none(repo):
     assert await repo.get_conversation("nope") is None
+
+
+@pytest.mark.unit
+async def test_anonymous_conversation_has_null_user_and_is_not_listed(repo):
+    anon = await repo.create_conversation()
+
+    fetched = await repo.get_conversation(anon.session_id)
+    assert fetched.user_id is None
+
+    await repo.create_conversation("user-1")
+    assert anon.session_id not in {c.session_id for c in await repo.list_by_user("user-1")}
 
 
 @pytest.mark.unit
@@ -111,6 +131,54 @@ async def test_get_context_window_zero_messages_is_empty(repo):
     await _seed(repo, conv.session_id, 3)
 
     assert await repo.get_context_window(conv.session_id, max_messages=0) == ""
+
+
+@pytest.mark.unit
+async def test_ttl_set_on_anonymous_conversation(repo_ttl):
+    conv = await repo_ttl.create_conversation()  # anonymous
+
+    assert conv.expires_at == conv.created_at + _TTL
+    assert (await repo_ttl.get_conversation(conv.session_id)).expires_at is not None
+
+
+@pytest.mark.unit
+async def test_no_ttl_on_logged_in_conversation(repo_ttl):
+    conv = await repo_ttl.create_conversation("user-1")
+
+    assert conv.expires_at is None
+    assert (await repo_ttl.get_conversation(conv.session_id)).expires_at is None
+
+
+@pytest.mark.unit
+async def test_anonymous_messages_expire_and_conversation_ttl_slides(repo_ttl):
+    conv = await repo_ttl.create_conversation()
+
+    msg = await repo_ttl.append_message(conv.session_id, MessageRole.USER, "hi")
+
+    assert msg.expires_at == msg.timestamp + _TTL
+    stored_msg = (await repo_ttl.get_history(conv.session_id))[0]
+    refreshed = await repo_ttl.get_conversation(conv.session_id)
+    assert stored_msg.expires_at == stored_msg.timestamp + _TTL
+    assert refreshed.expires_at == stored_msg.expires_at  # conversation TTL slid forward
+
+
+@pytest.mark.unit
+async def test_logged_in_messages_have_no_ttl(repo_ttl):
+    conv = await repo_ttl.create_conversation("user-1")
+
+    msg = await repo_ttl.append_message(conv.session_id, MessageRole.USER, "hi")
+
+    assert msg.expires_at is None
+    assert (await repo_ttl.get_conversation(conv.session_id)).expires_at is None
+
+
+@pytest.mark.unit
+async def test_no_ttl_configured_leaves_expiry_unset(repo):
+    conv = await repo.create_conversation()  # anonymous, but repo has no TTL
+    msg = await repo.append_message(conv.session_id, MessageRole.USER, "hi")
+
+    assert conv.expires_at is None
+    assert msg.expires_at is None
 
 
 @pytest.mark.unit

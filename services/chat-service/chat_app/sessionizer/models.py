@@ -28,15 +28,17 @@ class Message(BaseModel):
     content: str
     timestamp: datetime = Field(default_factory=utcnow)
     metadata: dict = Field(default_factory=dict)
+    expires_at: datetime | None = None
 
 
 class Conversation(BaseModel):
     """Session metadata document in the conversation collection."""
 
     session_id: str = Field(default_factory=lambda: uuid4().hex)
-    user_id: str
+    user_id: str | None = None  # None for anonymous conversations
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
     message_count: int = 0
     metadata: dict = Field(default_factory=dict)
     is_active: bool = True
+    expires_at: datetime | None = None

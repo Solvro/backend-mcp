@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import ASCENDING, DESCENDING
 
@@ -20,16 +22,24 @@ _NO_ID = {"_id": 0}
 
 
 class ConversationRepository:
-    def __init__(self, db: AsyncIOMotorDatabase) -> None:
+    def __init__(
+        self,
+        db: AsyncIOMotorDatabase,
+        *,
+        anonymous_ttl: timedelta | None = None,
+    ) -> None:
         self._conversations = db["conversations"]
         self._messages = db["messages"]
+        self._anonymous_ttl = anonymous_ttl
 
     async def create_conversation(
         self,
-        user_id: str,
+        user_id: str | None = None,
         metadata: dict | None = None,
     ) -> Conversation:
         conversation = Conversation(user_id=user_id, metadata=metadata or {})
+        if user_id is None and self._anonymous_ttl is not None:
+            conversation.expires_at = conversation.created_at + self._anonymous_ttl
         await self._conversations.insert_one(conversation.model_dump())
         return conversation
 
@@ -50,15 +60,22 @@ class ConversationRepository:
             content=content,
             metadata=metadata or {},
         )
+        update: dict = {
+            "$set": {"updated_at": message.timestamp},
+            "$inc": {"message_count": 1},
+        }
+        if self._anonymous_ttl is not None and await self._is_anonymous(session_id):
+            message.expires_at = message.timestamp + self._anonymous_ttl
+            update["$set"]["expires_at"] = message.expires_at
         await self._messages.insert_one(message.model_dump())
-        await self._conversations.update_one(
-            {"session_id": session_id},
-            {
-                "$set": {"updated_at": message.timestamp},
-                "$inc": {"message_count": 1},
-            },
-        )
+        await self._conversations.update_one({"session_id": session_id}, update)
         return message
+
+    async def _is_anonymous(self, session_id: str) -> bool:
+        doc = await self._conversations.find_one(
+            {"session_id": session_id}, {"_id": 0, "user_id": 1}
+        )
+        return doc is not None and doc.get("user_id") is None
 
     async def get_history(
         self,

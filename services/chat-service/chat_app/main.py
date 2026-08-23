@@ -2,6 +2,7 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+from common.auth import optional_auth
 from common.exceptions_handlers import register_exception_handlers
 from common.health import build_health_router
 from common.logging import setup_logging
@@ -9,7 +10,7 @@ from common.metrics import setup_metrics
 from common.middleware import setup_middleware
 from common.mongo import close_mongo_client, create_indexes
 from common.observability import get_langfuse, shutdown_langfuse
-from common.rate_limit import rate_limit
+from common.rate_limit import daily_quota, rate_limit
 from fastapi import Depends, FastAPI
 
 from chat_app.health import build_dependencies
@@ -54,7 +55,22 @@ app.include_router(
 )
 
 
-# Placeholder endpoint until real implementation
-@app.post("/api/chat", dependencies=[Depends(rate_limit("chat:message", settings=settings))])
+# Placeholder endpoint until real implementation (SES-2).
+# optional_auth runs first so the daily quota can pick the anonymous vs authenticated allowance.
+@app.post(
+    "/api/chat",
+    dependencies=[
+        Depends(optional_auth(settings=settings)),
+        Depends(rate_limit("chat:message", settings=settings)),
+        Depends(
+            daily_quota(
+                "chat:message",
+                settings=settings,
+                anonymous_limit=settings.chat_daily_quota_anonymous,
+                authenticated_limit=settings.chat_daily_quota_authenticated,
+            )
+        ),
+    ],
+)
 async def chat() -> dict[str, str]:
     return {"status": "ok", "service": "chat-service"}

@@ -45,6 +45,13 @@ async def create_indexes(settings: CommonSettings | None = None) -> None:
         [("session_id", ASCENDING), ("timestamp", ASCENDING)], name="ix_session_ts"
     )
 
+    await db["conversations"].create_index(
+        [("expires_at", ASCENDING)], expireAfterSeconds=0, name="ttl_expires_at"
+    )
+    await db["messages"].create_index(
+        [("expires_at", ASCENDING)], expireAfterSeconds=0, name="ttl_expires_at"
+    )
+
 
 async def close_mongo_client() -> None:
     global _client

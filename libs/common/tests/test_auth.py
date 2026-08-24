@@ -6,9 +6,10 @@ from common.auth import (
     decode_access_token,
     optional_auth,
     require_auth,
+    require_roles,
 )
-from common.context import user_id_var
-from common.errors import AuthError
+from common.context import roles_var, user_id_var
+from common.errors import AuthError, ForbiddenError
 from common.settings import CommonSettings
 from starlette.requests import Request
 
@@ -41,9 +42,22 @@ def _request(headers: dict[str, str] | None = None) -> Request:
 
 @pytest.fixture(autouse=True)
 def _clear_user_ctx():
-    token = user_id_var.set(None)
+    ut = user_id_var.set(None)
+    rt = roles_var.set(())
     yield
-    user_id_var.reset(token)
+    user_id_var.reset(ut)
+    roles_var.reset(rt)
+
+
+class _FakeRedis:
+    def __init__(self, present: set[str] | None = None, *, fail: bool = False) -> None:
+        self._present = present or set()
+        self._fail = fail
+
+    async def exists(self, key: str) -> int:
+        if self._fail:
+            raise ConnectionError("redis down")
+        return 1 if key in self._present else 0
 
 
 def test_decode_valid_token_returns_claims() -> None:
@@ -111,3 +125,107 @@ async def test_token_without_subject_rejected() -> None:
 
     with pytest.raises(AuthError):
         await dep(_request(headers))
+
+
+def test_decode_accepts_matching_issuer_and_audience() -> None:
+    settings = _settings(jwt_issuer="auth-service", jwt_audience="chat-service")
+    token = _token({"sub": "u1", "iss": "auth-service", "aud": "chat-service"})
+
+    claims = decode_access_token(token, settings)
+
+    assert claims["sub"] == "u1"
+
+
+def test_decode_rejects_wrong_issuer() -> None:
+    settings = _settings(jwt_issuer="auth-service")
+    token = _token({"sub": "u1", "iss": "someone-else"})
+
+    with pytest.raises(AuthError):
+        decode_access_token(token, settings)
+
+
+def test_decode_rejects_wrong_audience() -> None:
+    settings = _settings(jwt_audience="chat-service")
+    token = _token({"sub": "u1", "aud": "other-service"})
+
+    with pytest.raises(AuthError):
+        decode_access_token(token, settings)
+
+
+def test_decode_tolerates_clock_skew_within_leeway() -> None:
+    settings = _settings(jwt_leeway_seconds=60)
+    just_expired = _token(
+        {"sub": "u1", "exp": datetime.now(timezone.utc) - timedelta(seconds=10)}
+    )
+
+    claims = decode_access_token(just_expired, settings)
+
+    assert claims["sub"] == "u1"
+
+
+async def test_roles_loaded_into_context() -> None:
+    dep = require_auth(settings=_settings())
+    headers = {"Authorization": f"Bearer {_token({'sub': 'u1', 'roles': ['admin', 'user']})}"}
+
+    await dep(_request(headers))
+
+    assert roles_var.get() == ("admin", "user")
+
+
+async def test_denylisted_token_rejected(monkeypatch) -> None:
+    from common import auth as auth_module
+    from common.redis import denylist_key
+
+    settings = _settings()
+    key = denylist_key("revoked-jti", settings=settings)
+    monkeypatch.setattr(auth_module, "get_redis", lambda s: _FakeRedis({key}))
+
+    dep = require_auth(settings=settings)
+    headers = {"Authorization": f"Bearer {_token({'sub': 'u1', 'jti': 'revoked-jti'})}"}
+
+    with pytest.raises(AuthError):
+        await dep(_request(headers))
+
+
+async def test_non_denylisted_token_passes(monkeypatch) -> None:
+    from common import auth as auth_module
+
+    monkeypatch.setattr(auth_module, "get_redis", lambda s: _FakeRedis(set()))
+
+    dep = require_auth(settings=_settings())
+    headers = {"Authorization": f"Bearer {_token({'sub': 'u1', 'jti': 'live-jti'})}"}
+
+    assert await dep(_request(headers)) == "u1"
+
+
+async def test_denylist_fails_open_when_redis_unavailable(monkeypatch) -> None:
+    from common import auth as auth_module
+
+    monkeypatch.setattr(auth_module, "get_redis", lambda s: _FakeRedis(fail=True))
+
+    dep = require_auth(settings=_settings())
+    headers = {"Authorization": f"Bearer {_token({'sub': 'u1', 'jti': 'any-jti'})}"}
+
+    assert await dep(_request(headers)) == "u1"
+
+
+async def test_require_roles_allows_holder() -> None:
+    dep = require_roles("admin", settings=_settings())
+    headers = {"Authorization": f"Bearer {_token({'sub': 'u1', 'roles': ['admin']})}"}
+
+    assert await dep(_request(headers)) == "u1"
+
+
+async def test_require_roles_forbids_missing_role() -> None:
+    dep = require_roles("admin", settings=_settings())
+    headers = {"Authorization": f"Bearer {_token({'sub': 'u1', 'roles': ['user']})}"}
+
+    with pytest.raises(ForbiddenError):
+        await dep(_request(headers))
+
+
+async def test_require_roles_requires_authentication() -> None:
+    dep = require_roles("admin", settings=_settings())
+
+    with pytest.raises(AuthError):
+        await dep(_request())

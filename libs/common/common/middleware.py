@@ -7,7 +7,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from common.context import request_id_var, session_id_var, trace_id_var, user_id_var
+from common.context import (
+    request_id_var,
+    roles_var,
+    session_id_var,
+    trace_id_var,
+    user_id_var,
+)
 from common.errors import PayloadTooLargeError
 from common.exceptions_handlers import build_rfc7807_response
 from common.settings import CommonSettings
@@ -47,6 +53,7 @@ class RequestContext:
         t2 = trace_id_var.set(trace_id_bytes.decode("utf-8"))
         t3 = session_id_var.set(None)
         t4 = user_id_var.set(None)
+        t5 = roles_var.set(())
 
         response_status = 500
         process_time = None
@@ -89,6 +96,7 @@ class RequestContext:
             trace_id_var.reset(t2)
             session_id_var.reset(t3)
             user_id_var.reset(t4)
+            roles_var.reset(t5)
 
 
 class _BodyTooLargeError(Exception):

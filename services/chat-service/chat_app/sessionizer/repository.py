@@ -43,8 +43,17 @@ class ConversationRepository:
         await self._conversations.insert_one(conversation.model_dump())
         return conversation
 
-    async def get_conversation(self, session_id: str) -> Conversation | None:
-        doc = await self._conversations.find_one({"session_id": session_id}, _NO_ID)
+    @staticmethod
+    def _scoped(session_id: str, user_id: str | None) -> dict:
+        query: dict = {"session_id": session_id}
+        if user_id is not None:
+            query["user_id"] = user_id
+        return query
+
+    async def get_conversation(
+        self, session_id: str, *, user_id: str | None = None
+    ) -> Conversation | None:
+        doc = await self._conversations.find_one(self._scoped(session_id, user_id), _NO_ID)
         return Conversation(**doc) if doc else None
 
     async def append_message(
@@ -129,14 +138,16 @@ class ConversationRepository:
         docs = await cursor.to_list(length=limit)
         return [Conversation(**doc) for doc in docs]
 
-    async def deactivate(self, session_id: str) -> bool:
+    async def deactivate(self, session_id: str, *, user_id: str | None = None) -> bool:
         result = await self._conversations.update_one(
-            {"session_id": session_id},
+            self._scoped(session_id, user_id),
             {"$set": {"is_active": False, "updated_at": utcnow()}},
         )
-        return result.modified_count > 0
+        return result.matched_count > 0
 
-    async def delete(self, session_id: str) -> bool:
+    async def delete(self, session_id: str, *, user_id: str | None = None) -> bool:
+        result = await self._conversations.delete_one(self._scoped(session_id, user_id))
+        if result.deleted_count == 0:
+            return False
         await self._messages.delete_many({"session_id": session_id})
-        result = await self._conversations.delete_one({"session_id": session_id})
-        return result.deleted_count > 0
+        return True

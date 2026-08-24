@@ -7,7 +7,7 @@ from fastapi import Request
 
 from common.context import roles_var, user_id_var
 from common.errors import AuthError, ForbiddenError
-from common.redis import denylist_key, get_redis
+from common.redis import is_token_denylisted
 from common.settings import CommonSettings
 
 logger = logging.getLogger(__name__)
@@ -52,8 +52,7 @@ def _normalize_roles(raw: object) -> tuple[str, ...]:
 
 async def _is_denylisted(jti: str, settings: CommonSettings) -> bool:
     try:
-        redis = get_redis(settings)
-        return await redis.exists(denylist_key(jti, settings=settings)) > 0
+        return await is_token_denylisted(jti, settings=settings)
     except Exception:  # noqa: BLE001 - revocation check degrades gracefully
         logger.warning(
             "Denylist lookup failed; accepting token without revocation check",

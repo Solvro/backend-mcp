@@ -49,15 +49,15 @@ def _clear_user_ctx():
     roles_var.reset(rt)
 
 
-class _FakeRedis:
-    def __init__(self, present: set[str] | None = None, *, fail: bool = False) -> None:
-        self._present = present or set()
-        self._fail = fail
+def _patch_denylist(monkeypatch, *, contains: bool = False, fail: bool = False) -> None:
+    from common import auth as auth_module
 
-    async def exists(self, key: str) -> int:
-        if self._fail:
+    async def fake(jti: str, *, settings=None) -> bool:
+        if fail:
             raise ConnectionError("redis down")
-        return 1 if key in self._present else 0
+        return contains
+
+    monkeypatch.setattr(auth_module, "is_token_denylisted", fake)
 
 
 def test_decode_valid_token_returns_claims() -> None:
@@ -173,14 +173,9 @@ async def test_roles_loaded_into_context() -> None:
 
 
 async def test_denylisted_token_rejected(monkeypatch) -> None:
-    from common import auth as auth_module
-    from common.redis import denylist_key
+    _patch_denylist(monkeypatch, contains=True)
 
-    settings = _settings()
-    key = denylist_key("revoked-jti", settings=settings)
-    monkeypatch.setattr(auth_module, "get_redis", lambda s: _FakeRedis({key}))
-
-    dep = require_auth(settings=settings)
+    dep = require_auth(settings=_settings())
     headers = {"Authorization": f"Bearer {_token({'sub': 'u1', 'jti': 'revoked-jti'})}"}
 
     with pytest.raises(AuthError):
@@ -188,9 +183,7 @@ async def test_denylisted_token_rejected(monkeypatch) -> None:
 
 
 async def test_non_denylisted_token_passes(monkeypatch) -> None:
-    from common import auth as auth_module
-
-    monkeypatch.setattr(auth_module, "get_redis", lambda s: _FakeRedis(set()))
+    _patch_denylist(monkeypatch, contains=False)
 
     dep = require_auth(settings=_settings())
     headers = {"Authorization": f"Bearer {_token({'sub': 'u1', 'jti': 'live-jti'})}"}
@@ -198,10 +191,17 @@ async def test_non_denylisted_token_passes(monkeypatch) -> None:
     assert await dep(_request(headers)) == "u1"
 
 
-async def test_denylist_fails_open_when_redis_unavailable(monkeypatch) -> None:
-    from common import auth as auth_module
+async def test_token_without_jti_skips_denylist(monkeypatch) -> None:
+    _patch_denylist(monkeypatch, fail=True)
 
-    monkeypatch.setattr(auth_module, "get_redis", lambda s: _FakeRedis(fail=True))
+    dep = require_auth(settings=_settings())
+    headers = {"Authorization": f"Bearer {_token({'sub': 'u1'})}"}
+
+    assert await dep(_request(headers)) == "u1"
+
+
+async def test_denylist_fails_open_when_redis_unavailable(monkeypatch) -> None:
+    _patch_denylist(monkeypatch, fail=True)
 
     dep = require_auth(settings=_settings())
     headers = {"Authorization": f"Bearer {_token({'sub': 'u1', 'jti': 'any-jti'})}"}

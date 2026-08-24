@@ -56,3 +56,5 @@ def test_auth_models_can_be_created_and_persisted() -> None:
         saved_user = session.get(User, user.id)
         assert saved_user is not None
         assert saved_user.email == "alice@example.com"
+        assert saved_user.email_verified is False
+        assert saved_user.verified_at is None

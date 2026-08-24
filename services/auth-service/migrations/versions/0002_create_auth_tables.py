@@ -21,6 +21,13 @@ def upgrade() -> None:
             server_default=sa.sql.expression.true(),
         ),
         sa.Column(
+            "email_verified",
+            sa.Boolean(),
+            nullable=False,
+            server_default=sa.sql.expression.false(),
+        ),
+        sa.Column("verified_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
             nullable=False,

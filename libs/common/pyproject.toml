@@ -19,6 +19,8 @@ dependencies = [
     "asyncpg>=0.29.0",
     "motor>=3.5.0",
     "prometheus-fastapi-instrumentator>=7.0.0",
+    "aiosmtplib>=2.7.0",
+    "Jinja2>=3.0.0",
 ]
 
 [tool.hatch.build.targets.wheel]

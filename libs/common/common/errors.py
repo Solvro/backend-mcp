@@ -35,6 +35,13 @@ class AuthError(AppError):
     detail = "Authentication failed or credentials were not provided."
 
 
+class ForbiddenError(AppError):
+    type_uri = f"{ERROR_TYPE_BASE_URL}/forbidden"
+    title = "Forbidden"
+    status_code = 403
+    detail = "You do not have permission to perform this action."
+
+
 class RateLimitedError(AppError):
     type_uri = f"{ERROR_TYPE_BASE_URL}/rate-limited"
     title = "Too Many Requests"

@@ -13,6 +13,7 @@ from common.observability import get_langfuse, shutdown_langfuse
 from common.rate_limit import daily_quota, rate_limit
 from fastapi import Depends, FastAPI
 
+from chat_app.api.sessions import build_sessions_router
 from chat_app.health import build_dependencies
 from chat_app.settings import get_settings
 
@@ -53,6 +54,8 @@ app.include_router(
         dependencies_provider=lambda: build_dependencies(get_settings()),
     )
 )
+
+app.include_router(build_sessions_router(settings))
 
 
 # Placeholder endpoint until real implementation (SES-2).

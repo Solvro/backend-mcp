@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from common.db import Base
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, false, func, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 
@@ -12,7 +12,13 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=true())
+    email_verified: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=false()
+    )
+    verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -84,7 +90,7 @@ class RefreshToken(Base):
     token_hash: Mapped[str] = mapped_column(String(512), nullable=False)
     jti: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    revoked: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    revoked: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

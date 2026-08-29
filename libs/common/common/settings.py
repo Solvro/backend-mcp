@@ -26,6 +26,9 @@ class CommonSettings(BaseSettings):
         default_factory=lambda: get_secrets_provider().get("JWT_SECRET_KEY", ""),
     )
     jwt_algorithm: str = "HS256"
+    jwt_issuer: str = ""
+    jwt_audience: str = ""
+    jwt_leeway_seconds: int = 30
 
     rate_limit_enabled: bool = True
     rate_limit: int = 60

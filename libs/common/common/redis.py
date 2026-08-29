@@ -119,6 +119,24 @@ def denylist_key(jti: str, *, settings: CommonSettings | None = None) -> str:
     return make_key(Namespace.DENYLIST, jti, settings=settings)
 
 
+async def revoke_token(
+    jti: str,
+    *,
+    ttl_seconds: int | None = None,
+    settings: CommonSettings | None = None,
+) -> None:
+    redis = get_redis(settings)
+    ttl = max(1, ttl_seconds if ttl_seconds is not None else int(TTL.DENYLIST))
+    await redis.set(denylist_key(jti, settings=settings), "1", ex=ttl)
+
+
+async def is_token_denylisted(
+    jti: str, *, settings: CommonSettings | None = None
+) -> bool:
+    redis = get_redis(settings)
+    return await redis.exists(denylist_key(jti, settings=settings)) > 0
+
+
 def cache_key(digest: str, *, settings: CommonSettings | None = None) -> str:
     return make_key(Namespace.CACHE, digest, settings=settings)
 

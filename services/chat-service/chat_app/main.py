@@ -2,7 +2,6 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from common.auth import optional_auth
 from common.exceptions_handlers import register_exception_handlers
 from common.health import build_health_router
 from common.logging import setup_logging
@@ -10,11 +9,13 @@ from common.metrics import setup_metrics
 from common.middleware import setup_middleware
 from common.mongo import close_mongo_client, create_indexes
 from common.observability import get_langfuse, shutdown_langfuse
-from common.rate_limit import daily_quota, rate_limit
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI
 
+from chat_app.answer import build_answer_agent
+from chat_app.api.chat import build_chat_router
 from chat_app.api.sessions import build_sessions_router
 from chat_app.health import build_dependencies
+from chat_app.mcp_gateway import KnowledgeGraphGateway
 from chat_app.settings import get_settings
 
 settings = get_settings()
@@ -35,7 +36,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     else:
         logger.info("MONGO_URI not set — skipping Mongo index bootstrap")
     get_langfuse(settings)
+    app.state.mcp_gateway = KnowledgeGraphGateway.from_settings(settings)
+    app.state.answer_agent = build_answer_agent(settings)
     yield
+    await app.state.mcp_gateway.aclose()
     shutdown_langfuse()
     await close_mongo_client()
 
@@ -57,23 +61,4 @@ app.include_router(
 
 app.include_router(build_sessions_router(settings))
 
-
-# Placeholder endpoint until real implementation (SES-2).
-# optional_auth runs first so the daily quota can pick the anonymous vs authenticated allowance.
-@app.post(
-    "/api/chat",
-    dependencies=[
-        Depends(optional_auth(settings=settings)),
-        Depends(rate_limit("chat:message", settings=settings)),
-        Depends(
-            daily_quota(
-                "chat:message",
-                settings=settings,
-                anonymous_limit=settings.chat_daily_quota_anonymous,
-                authenticated_limit=settings.chat_daily_quota_authenticated,
-            )
-        ),
-    ],
-)
-async def chat() -> dict[str, str]:
-    return {"status": "ok", "service": "chat-service"}
+app.include_router(build_chat_router(settings))

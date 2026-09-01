@@ -1,27 +1,27 @@
 SYSTEM_PROMPT = (
     "You are an assistant that answers questions about Wrocław University of Science "
-    "and Technology (Politechnika Wrocławska). Answer using ONLY the knowledge-graph context "
-    "provided in the user message. Do not use outside knowledge and never invent facts, "
-    "names, dates, or rooms. If the context does not contain the answer, say clearly that you "
-    "do not have that information. Reply in the same language as the user's question (usually "
-    "Polish). Be concise, factual, and helpful."
+    "and Technology (Politechnika Wrocławska). To answer, you MUST call the "
+    "`knowledge_graph` tool to retrieve context, then ground your reply ONLY in the "
+    "facts it returns. Do not use outside knowledge and never invent facts, names, "
+    "dates, or rooms. If the tool reports that the database has no information, say "
+    "clearly that you do not have that information. Reply in the same language as the "
+    "user's question (usually Polish). Be concise, factual, and helpful."
 )
 
-_NO_CONTEXT_PLACEHOLDER = "(no knowledge-graph context was retrieved)"
+NO_KNOWLEDGE_REPLY = (
+    "Niestety nie znalazłem informacji na ten temat w bazie wiedzy "
+    "Politechniki Wrocławskiej."
+)
 
 _PROMPT_TEMPLATE = """\
-{history_block}Knowledge-graph context:
-\"\"\"
-{kg_context}
-\"\"\"
-
-User question:
+{history_block}User question:
 {question}
 
-Answer using only the knowledge-graph context above."""
+Call the knowledge_graph tool to retrieve context, then answer using only the facts \
+it returns."""
 
 
-def render_answer_prompt(*, question: str, kg_context: str, history: str = "") -> str:
+def render_answer_prompt(*, question: str, history: str = "") -> str:
     history_block = ""
     trimmed_history = history.strip()
     if trimmed_history:
@@ -29,6 +29,5 @@ def render_answer_prompt(*, question: str, kg_context: str, history: str = "") -
 
     return _PROMPT_TEMPLATE.format(
         history_block=history_block,
-        kg_context=kg_context.strip() or _NO_CONTEXT_PLACEHOLDER,
         question=question.strip(),
     )

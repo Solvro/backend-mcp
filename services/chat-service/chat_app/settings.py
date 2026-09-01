@@ -45,6 +45,11 @@ class ChatSettings(CommonSettings):
     answer_gemini_model: str = "gemini-2.5-flash-lite"
     answer_temperature: float = 0.0
 
+    answer_kg_retrieval_attempts: int = 3
+
+    semantic_guardrail_enabled: bool = False
+    semantic_guardrail_temperature: float = 0.0
+
 
 @lru_cache
 def get_settings() -> ChatSettings:

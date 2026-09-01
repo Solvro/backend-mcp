@@ -11,9 +11,11 @@ from pydantic import BaseModel, Field, field_validator
 from pydantic_ai import Agent
 
 from chat_app.answer import (
+    AnswerDeps,
     AnswerResult,
-    fallback_answer,
-    render_answer_prompt,
+    SemanticGuardrail,
+    apply_semantic_guardrail,
+    generate_answer,
 )
 from chat_app.api.sessions import get_repository
 from chat_app.mcp_gateway import KnowledgeGraphGateway
@@ -27,6 +29,7 @@ _SESSION_NOT_FOUND = "Session not found."
 
 SOURCE_KNOWLEDGE_GRAPH = "mcp_knowledge_graph"
 SOURCE_ERROR = "error"
+SOURCE_GUARDRAIL_BLOCKED = "guardrail_blocked"
 
 DEGRADED_ANSWER = (
     "Przepraszam, w tej chwili nie mogę uzyskać odpowiedzi z bazy wiedzy. "
@@ -62,22 +65,12 @@ def get_gateway(request: Request) -> KnowledgeGraphGateway:
     return request.app.state.mcp_gateway
 
 
-def get_answer_agent(request: Request) -> Agent[None, AnswerResult] | None:
+def get_answer_agent(request: Request) -> Agent[AnswerDeps, AnswerResult] | None:
     return request.app.state.answer_agent
 
 
-async def _generate_answer(
-    agent: Agent[None, AnswerResult] | None,
-    *,
-    question: str,
-    kg_context: str,
-    history: str,
-) -> str:
-    if agent is None:
-        return fallback_answer(kg_context).answer
-    prompt = render_answer_prompt(question=question, kg_context=kg_context, history=history)
-    result = await agent.run(prompt)
-    return result.output.answer
+def get_semantic_guardrail(request: Request) -> SemanticGuardrail | None:
+    return getattr(request.app.state, "semantic_guardrail", None)
 
 
 def build_chat_router(settings: ChatSettings) -> APIRouter:
@@ -103,7 +96,8 @@ def build_chat_router(settings: ChatSettings) -> APIRouter:
         request: ChatRequest,
         repo: ConversationRepository = Depends(get_repository),
         gateway: KnowledgeGraphGateway = Depends(get_gateway),
-        agent: Agent[None, AnswerResult] | None = Depends(get_answer_agent),
+        agent: Agent[AnswerDeps, AnswerResult] | None = Depends(get_answer_agent),
+        guardrail: SemanticGuardrail | None = Depends(get_semantic_guardrail),
     ) -> ChatResponse:
         user_id = user_id_var.get()
 
@@ -136,10 +130,22 @@ def build_chat_router(settings: ChatSettings) -> APIRouter:
                 input=request.message,
                 settings=settings,
             ):
-                kg_context = await gateway.query(request.message, trace_id=trace_id)
-                answer = await _generate_answer(
-                    agent, question=request.message, kg_context=kg_context, history=history
+                result = await generate_answer(
+                    agent,
+                    question=request.message,
+                    history=history,
+                    gateway=gateway,
+                    trace_id=trace_id,
                 )
+                outcome = await apply_semantic_guardrail(
+                    guardrail,
+                    question=request.message,
+                    answer=result.answer,
+                    trace_id=trace_id,
+                )
+                answer = outcome.answer
+                if outcome.blocked:
+                    source = SOURCE_GUARDRAIL_BLOCKED
         except Exception:
             logger.exception("Chat orchestration failed for session %s", session_id)
             answer = DEGRADED_ANSWER

@@ -1,12 +1,21 @@
 import jwt
 import pytest
-from chat_app.answer import AnswerResult
+from chat_app.answer import (
+    SAFE_REFUSAL,
+    AnswerDeps,
+    AnswerResult,
+    SemanticGuardrail,
+    build_answer_agent,
+    build_semantic_guardrail,
+)
 from chat_app.api.chat import (
     SOURCE_ERROR,
+    SOURCE_GUARDRAIL_BLOCKED,
     SOURCE_KNOWLEDGE_GRAPH,
     build_chat_router,
     get_answer_agent,
     get_gateway,
+    get_semantic_guardrail,
 )
 from chat_app.api.sessions import get_repository
 from chat_app.sessionizer import ConversationRepository
@@ -38,9 +47,11 @@ class FakeGateway:
         return self.result
 
 
-def _answer_agent(answer: str = "Grounded answer.") -> Agent[None, AnswerResult]:
+def _answer_agent(answer: str = "Grounded answer.") -> Agent[AnswerDeps, AnswerResult]:
     model = TestModel(custom_output_args={"answer": answer, "warning": None})
-    return Agent(model, output_type=AnswerResult, system_prompt="sys", name="test-agent")
+    agent = build_answer_agent(ChatSettings(), model=model)
+    assert agent is not None
+    return agent
 
 
 @pytest.fixture(autouse=True)
@@ -59,11 +70,21 @@ def repo() -> ConversationRepository:
     return ConversationRepository(db)
 
 
+def _blocking_guardrail(category: str = "jailbreak") -> SemanticGuardrail:
+    model = TestModel(custom_output_args={"blocked": True, "category": category, "reason": "x"})
+    guardrail = build_semantic_guardrail(
+        ChatSettings(semantic_guardrail_enabled=True), model=model
+    )
+    assert guardrail is not None
+    return guardrail
+
+
 def _make_client(
     repo: ConversationRepository,
     *,
     gateway: FakeGateway | None = None,
-    agent: Agent[None, AnswerResult] | None = None,
+    agent: Agent[AnswerDeps, AnswerResult] | None = None,
+    guardrail: SemanticGuardrail | None = None,
 ) -> tuple[TestClient, FakeGateway]:
     gateway = gateway or FakeGateway()
     settings = ChatSettings(jwt_secret_key=_SECRET, rate_limit_enabled=False)
@@ -73,6 +94,7 @@ def _make_client(
     app.dependency_overrides[get_repository] = lambda: repo
     app.dependency_overrides[get_gateway] = lambda: gateway
     app.dependency_overrides[get_answer_agent] = lambda: agent
+    app.dependency_overrides[get_semantic_guardrail] = lambda: guardrail
     return TestClient(app), gateway
 
 
@@ -101,7 +123,8 @@ async def test_anonymous_happy_path_persists_both_messages(repo) -> None:
     assert [m.role for m in history] == ["user", "assistant"]
     assert history[0].content == "Gdzie jest sala 301?"
     assert history[1].metadata["trace_id"] == trace_id
-    assert gateway.calls == [("Gdzie jest sala 301?", trace_id)]
+    assert len(gateway.calls) == 1
+    assert gateway.calls[0][1] == trace_id
 
 
 async def test_authenticated_happy_path_sets_user_id_from_jwt(repo) -> None:
@@ -235,3 +258,29 @@ async def test_guardrail_rejects_prompt_injection_with_422(repo) -> None:
 
     assert resp.status_code == 422
     assert gateway.calls == []
+
+
+async def test_semantic_guardrail_disabled_returns_answer_unchanged(repo) -> None:
+    client, _ = _make_client(repo, agent=_answer_agent("Odpowiedź."))
+
+    resp = client.post("/api/chat", json={"message": "Pytanie?"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["message"] == "Odpowiedź."
+    assert body["metadata"]["source"] == SOURCE_KNOWLEDGE_GRAPH
+
+
+async def test_semantic_guardrail_blocks_answer_when_enabled(repo) -> None:
+    client, _ = _make_client(
+        repo, agent=_answer_agent("Odpowiedź."), guardrail=_blocking_guardrail()
+    )
+
+    resp = client.post("/api/chat", json={"message": "Pytanie?"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["message"] == SAFE_REFUSAL
+    assert body["metadata"]["source"] == SOURCE_GUARDRAIL_BLOCKED
+    history = await repo.get_history(body["session_id"])
+    assert history[1].content == SAFE_REFUSAL

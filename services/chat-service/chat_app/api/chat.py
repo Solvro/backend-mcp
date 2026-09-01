@@ -13,6 +13,8 @@ from pydantic_ai import Agent
 from chat_app.answer import (
     AnswerDeps,
     AnswerResult,
+    SemanticGuardrail,
+    apply_semantic_guardrail,
     generate_answer,
 )
 from chat_app.api.sessions import get_repository
@@ -27,6 +29,7 @@ _SESSION_NOT_FOUND = "Session not found."
 
 SOURCE_KNOWLEDGE_GRAPH = "mcp_knowledge_graph"
 SOURCE_ERROR = "error"
+SOURCE_GUARDRAIL_BLOCKED = "guardrail_blocked"
 
 DEGRADED_ANSWER = (
     "Przepraszam, w tej chwili nie mogę uzyskać odpowiedzi z bazy wiedzy. "
@@ -66,6 +69,10 @@ def get_answer_agent(request: Request) -> Agent[AnswerDeps, AnswerResult] | None
     return request.app.state.answer_agent
 
 
+def get_semantic_guardrail(request: Request) -> SemanticGuardrail | None:
+    return getattr(request.app.state, "semantic_guardrail", None)
+
+
 def build_chat_router(settings: ChatSettings) -> APIRouter:
     router = APIRouter(prefix="/api", tags=["chat"])
 
@@ -90,6 +97,7 @@ def build_chat_router(settings: ChatSettings) -> APIRouter:
         repo: ConversationRepository = Depends(get_repository),
         gateway: KnowledgeGraphGateway = Depends(get_gateway),
         agent: Agent[AnswerDeps, AnswerResult] | None = Depends(get_answer_agent),
+        guardrail: SemanticGuardrail | None = Depends(get_semantic_guardrail),
     ) -> ChatResponse:
         user_id = user_id_var.get()
 
@@ -129,7 +137,15 @@ def build_chat_router(settings: ChatSettings) -> APIRouter:
                     gateway=gateway,
                     trace_id=trace_id,
                 )
-                answer = result.answer
+                outcome = await apply_semantic_guardrail(
+                    guardrail,
+                    question=request.message,
+                    answer=result.answer,
+                    trace_id=trace_id,
+                )
+                answer = outcome.answer
+                if outcome.blocked:
+                    source = SOURCE_GUARDRAIL_BLOCKED
         except Exception:
             logger.exception("Chat orchestration failed for session %s", session_id)
             answer = DEGRADED_ANSWER

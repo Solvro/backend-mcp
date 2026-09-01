@@ -47,6 +47,9 @@ class ChatSettings(CommonSettings):
 
     answer_kg_retrieval_attempts: int = 3
 
+    semantic_guardrail_enabled: bool = False
+    semantic_guardrail_temperature: float = 0.0
+
 
 @lru_cache
 def get_settings() -> ChatSettings:

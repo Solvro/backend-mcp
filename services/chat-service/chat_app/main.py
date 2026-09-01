@@ -11,7 +11,7 @@ from common.mongo import close_mongo_client, create_indexes
 from common.observability import get_langfuse, shutdown_langfuse
 from fastapi import FastAPI
 
-from chat_app.answer import build_answer_agent
+from chat_app.answer import build_answer_agent, build_semantic_guardrail
 from chat_app.api.chat import build_chat_router
 from chat_app.api.sessions import build_sessions_router
 from chat_app.health import build_dependencies
@@ -38,6 +38,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     get_langfuse(settings)
     app.state.mcp_gateway = KnowledgeGraphGateway.from_settings(settings)
     app.state.answer_agent = build_answer_agent(settings)
+    app.state.semantic_guardrail = build_semantic_guardrail(settings)
     yield
     await app.state.mcp_gateway.aclose()
     shutdown_langfuse()

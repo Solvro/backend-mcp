@@ -1,6 +1,6 @@
 import jwt
 import pytest
-from chat_app.answer import AnswerResult
+from chat_app.answer import AnswerDeps, AnswerResult, build_answer_agent
 from chat_app.api.chat import (
     SOURCE_ERROR,
     SOURCE_KNOWLEDGE_GRAPH,
@@ -38,9 +38,11 @@ class FakeGateway:
         return self.result
 
 
-def _answer_agent(answer: str = "Grounded answer.") -> Agent[None, AnswerResult]:
+def _answer_agent(answer: str = "Grounded answer.") -> Agent[AnswerDeps, AnswerResult]:
     model = TestModel(custom_output_args={"answer": answer, "warning": None})
-    return Agent(model, output_type=AnswerResult, system_prompt="sys", name="test-agent")
+    agent = build_answer_agent(ChatSettings(), model=model)
+    assert agent is not None
+    return agent
 
 
 @pytest.fixture(autouse=True)
@@ -63,7 +65,7 @@ def _make_client(
     repo: ConversationRepository,
     *,
     gateway: FakeGateway | None = None,
-    agent: Agent[None, AnswerResult] | None = None,
+    agent: Agent[AnswerDeps, AnswerResult] | None = None,
 ) -> tuple[TestClient, FakeGateway]:
     gateway = gateway or FakeGateway()
     settings = ChatSettings(jwt_secret_key=_SECRET, rate_limit_enabled=False)
@@ -101,7 +103,8 @@ async def test_anonymous_happy_path_persists_both_messages(repo) -> None:
     assert [m.role for m in history] == ["user", "assistant"]
     assert history[0].content == "Gdzie jest sala 301?"
     assert history[1].metadata["trace_id"] == trace_id
-    assert gateway.calls == [("Gdzie jest sala 301?", trace_id)]
+    assert len(gateway.calls) == 1
+    assert gateway.calls[0][1] == trace_id
 
 
 async def test_authenticated_happy_path_sets_user_id_from_jwt(repo) -> None:

@@ -39,9 +39,11 @@ class ChatSettings(CommonSettings):
     google_api_key: str = Field(
         default_factory=lambda: get_secrets_provider().get("GOOGLE_API_KEY", ""),
     )
-    clarin_api_key: str = Field(
-        default_factory=lambda: get_secrets_provider().get("CLARIN_API_KEY", ""),
-    )
+
+    answer_model_provider: str = ""
+    answer_openai_model: str = "gpt-5.4-mini"
+    answer_gemini_model: str = "gemini-2.5-flash-lite"
+    answer_temperature: float = 0.0
 
 
 @lru_cache

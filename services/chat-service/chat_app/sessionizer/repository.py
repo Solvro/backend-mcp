@@ -56,6 +56,12 @@ class ConversationRepository:
         doc = await self._conversations.find_one(self._scoped(session_id, user_id), _NO_ID)
         return Conversation(**doc) if doc else None
 
+    async def get_for_turn(self, session_id: str, *, user_id: str | None) -> Conversation | None:
+        doc = await self._conversations.find_one(
+            {"session_id": session_id, "user_id": user_id}, _NO_ID
+        )
+        return Conversation(**doc) if doc else None
+
     async def append_message(
         self,
         session_id: str,

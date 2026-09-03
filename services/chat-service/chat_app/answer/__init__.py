@@ -4,6 +4,7 @@ from chat_app.answer.agent import (
     fallback_answer,
     generate_answer,
 )
+from chat_app.answer.cache import AnswerCache, build_answer_cache, normalize_query
 from chat_app.answer.deps import AnswerDeps
 from chat_app.answer.guardrail import (
     SAFE_REFUSAL,
@@ -26,6 +27,7 @@ __all__ = [
     "NO_KNOWLEDGE_REPLY",
     "SAFE_REFUSAL",
     "SYSTEM_PROMPT",
+    "AnswerCache",
     "AnswerDeps",
     "AnswerProvider",
     "AnswerResult",
@@ -34,9 +36,11 @@ __all__ = [
     "SemanticVerdict",
     "apply_semantic_guardrail",
     "build_answer_agent",
+    "build_answer_cache",
     "build_semantic_guardrail",
     "fallback_answer",
     "generate_answer",
+    "normalize_query",
     "render_answer_prompt",
     "select_answer_model",
 ]

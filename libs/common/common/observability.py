@@ -10,6 +10,7 @@ from common.settings import CommonSettings
 
 if TYPE_CHECKING:
     from langfuse import Langfuse
+    from langfuse._client.span import LangfuseObservationWrapper as Observation
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +44,7 @@ def get_langfuse(settings: CommonSettings | None = None) -> "Langfuse | None":
         from langfuse import Langfuse
     except ImportError:
         logger.warning(
-            "Langfuse keys are set but the langfuse package is not installed -> "
-            "tracing disabled",
+            "Langfuse keys are set but the langfuse package is not installed -> tracing disabled",
         )
         return None
 
@@ -94,6 +94,29 @@ def use_trace_id(trace_id: str) -> Iterator[str]:
 
 
 @contextmanager
+def start_span(
+    name: str,
+    *,
+    as_type: str = "span",
+    input: Any = None,
+    metadata: dict[str, Any] | None = None,
+    settings: CommonSettings | None = None,
+) -> "Iterator[Observation | None]":
+    client = get_langfuse(settings)
+    if client is None:
+        yield None
+        return
+
+    with client.start_as_current_observation(
+        name=name,
+        as_type=as_type,
+        input=input,
+        metadata=metadata,
+    ) as span:
+        yield span
+
+
+@contextmanager
 def start_turn_trace(
     trace_id: str,
     *,
@@ -102,7 +125,7 @@ def start_turn_trace(
     tags: list[str] | None = None,
     input: Any = None,
     settings: CommonSettings | None = None,
-) -> Iterator[Any]:
+) -> "Iterator[Observation | None]":
     with use_trace_id(trace_id):
         client = get_langfuse(settings)
         if client is None:

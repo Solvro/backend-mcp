@@ -1,6 +1,7 @@
 import logging
 from dataclasses import dataclass
 
+from common.observability import start_span
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 from pydantic_ai.models import Model
@@ -69,7 +70,8 @@ class SemanticGuardrail:
         self._agent = agent
 
     async def check(self, *, question: str, answer: str) -> SemanticVerdict:
-        result = await self._agent.run(render_guard_prompt(question=question, answer=answer))
+        with start_span("guardrail-llm", as_type="generation", input=answer):
+            result = await self._agent.run(render_guard_prompt(question=question, answer=answer))
         return result.output
 
 

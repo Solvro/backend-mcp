@@ -11,6 +11,8 @@ from pydantic import BaseModel, Field, field_validator
 from pydantic_ai import Agent
 
 from chat_app.answer import (
+    NO_KNOWLEDGE_REPLY,
+    AnswerCache,
     AnswerDeps,
     AnswerResult,
     SemanticGuardrail,
@@ -30,6 +32,7 @@ _SESSION_NOT_FOUND = "Session not found."
 SOURCE_KNOWLEDGE_GRAPH = "mcp_knowledge_graph"
 SOURCE_ERROR = "error"
 SOURCE_GUARDRAIL_BLOCKED = "guardrail_blocked"
+SOURCE_CACHE = "cache"
 
 DEGRADED_ANSWER = (
     "Przepraszam, w tej chwili nie mogę uzyskać odpowiedzi z bazy wiedzy. "
@@ -73,6 +76,14 @@ def get_semantic_guardrail(request: Request) -> SemanticGuardrail | None:
     return getattr(request.app.state, "semantic_guardrail", None)
 
 
+def get_answer_cache(request: Request) -> AnswerCache | None:
+    return getattr(request.app.state, "answer_cache", None)
+
+
+def _is_cacheable(result: AnswerResult) -> bool:
+    return result.warning is None and result.answer != NO_KNOWLEDGE_REPLY
+
+
 def build_chat_router(settings: ChatSettings) -> APIRouter:
     router = APIRouter(prefix="/api", tags=["chat"])
 
@@ -98,6 +109,7 @@ def build_chat_router(settings: ChatSettings) -> APIRouter:
         gateway: KnowledgeGraphGateway = Depends(get_gateway),
         agent: Agent[AnswerDeps, AnswerResult] | None = Depends(get_answer_agent),
         guardrail: SemanticGuardrail | None = Depends(get_semantic_guardrail),
+        cache: AnswerCache | None = Depends(get_answer_cache),
     ) -> ChatResponse:
         user_id = user_id_var.get()
 
@@ -123,33 +135,47 @@ def build_chat_router(settings: ChatSettings) -> APIRouter:
 
         trace_id = new_trace_id()
         source = SOURCE_KNOWLEDGE_GRAPH
-        try:
-            with start_turn_trace(
-                trace_id,
-                session_id=session_id,
-                input=request.message,
-                settings=settings,
-            ):
-                result = await generate_answer(
-                    agent,
-                    question=request.message,
-                    history=history,
-                    gateway=gateway,
-                    trace_id=trace_id,
-                )
-                outcome = await apply_semantic_guardrail(
-                    guardrail,
-                    question=request.message,
-                    answer=result.answer,
-                    trace_id=trace_id,
-                )
-                answer = outcome.answer
-                if outcome.blocked:
-                    source = SOURCE_GUARDRAIL_BLOCKED
-        except Exception:
-            logger.exception("Chat orchestration failed for session %s", session_id)
-            answer = DEGRADED_ANSWER
-            source = SOURCE_ERROR
+        # A single-shot question (no prior turns) is safe to serve from cache;
+        # follow-ups depend on conversation context, so they always regenerate.
+        cacheable_turn = cache is not None and not history
+        answer: str | None = None
+
+        if cacheable_turn:
+            hit = await cache.lookup(request.message)
+            if hit is not None:
+                answer = hit
+                source = SOURCE_CACHE
+
+        if answer is None:
+            try:
+                with start_turn_trace(
+                    trace_id,
+                    session_id=session_id,
+                    input=request.message,
+                    settings=settings,
+                ):
+                    result = await generate_answer(
+                        agent,
+                        question=request.message,
+                        history=history,
+                        gateway=gateway,
+                        trace_id=trace_id,
+                    )
+                    outcome = await apply_semantic_guardrail(
+                        guardrail,
+                        question=request.message,
+                        answer=result.answer,
+                        trace_id=trace_id,
+                    )
+                    answer = outcome.answer
+                    if outcome.blocked:
+                        source = SOURCE_GUARDRAIL_BLOCKED
+                    elif cacheable_turn and _is_cacheable(result):
+                        await cache.store(request.message, answer)
+            except Exception:
+                logger.exception("Chat orchestration failed for session %s", session_id)
+                answer = DEGRADED_ANSWER
+                source = SOURCE_ERROR
 
         assistant = await repo.append_message(
             session_id,

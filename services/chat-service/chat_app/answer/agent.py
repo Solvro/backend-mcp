@@ -1,5 +1,6 @@
 import logging
 
+from common.observability import start_span
 from pydantic_ai import Agent, ModelRetry, RunContext
 from pydantic_ai.models import Model
 from pydantic_ai.settings import ModelSettings
@@ -53,7 +54,8 @@ def build_answer_agent(
         """
         ctx.deps.tool_called = True
         for _ in range(retrieval_attempts):
-            result = await ctx.deps.gateway.query(query, trace_id=ctx.deps.trace_id)
+            with start_span("mcp.knowledge_graph", as_type="tool", input=query):
+                result = await ctx.deps.gateway.query(query, trace_id=ctx.deps.trace_id)
             if not is_no_knowledge(result):
                 ctx.deps.knowledge_retrieved = True
                 return result
@@ -86,14 +88,16 @@ async def generate_answer(
     question = validate_chat_message(question)
 
     if agent is None:
-        raw = await gateway.query(question, trace_id=trace_id)
+        with start_span("mcp.knowledge_graph", as_type="tool", input=question):
+            raw = await gateway.query(question, trace_id=trace_id)
         if is_no_knowledge(raw):
             return AnswerResult(answer=NO_KNOWLEDGE_REPLY)
         return fallback_answer(raw)
 
     deps = AnswerDeps(gateway=gateway, trace_id=trace_id)
     prompt = render_answer_prompt(question=question, history=history)
-    result = await agent.run(prompt, deps=deps)
+    with start_span("answer-llm", as_type="generation", input=question):
+        result = await agent.run(prompt, deps=deps)
     if not deps.knowledge_retrieved:
         return AnswerResult(answer=NO_KNOWLEDGE_REPLY)
     return result.output

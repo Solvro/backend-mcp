@@ -2,23 +2,27 @@ import jwt
 import pytest
 from chat_app.answer import (
     SAFE_REFUSAL,
+    AnswerCache,
     AnswerDeps,
     AnswerResult,
     SemanticGuardrail,
     build_answer_agent,
+    build_answer_cache,
     build_semantic_guardrail,
 )
 from chat_app.api.chat import (
+    SOURCE_CACHE,
     SOURCE_ERROR,
     SOURCE_GUARDRAIL_BLOCKED,
     SOURCE_KNOWLEDGE_GRAPH,
     build_chat_router,
     get_answer_agent,
+    get_answer_cache,
     get_gateway,
     get_semantic_guardrail,
 )
 from chat_app.api.sessions import get_repository
-from chat_app.sessionizer import ConversationRepository
+from chat_app.sessionizer import ConversationRepository, MessageRole
 from chat_app.settings import ChatSettings
 from common import rate_limit as rate_limit_module
 from common.exceptions_handlers import register_exception_handlers
@@ -70,11 +74,35 @@ def repo() -> ConversationRepository:
     return ConversationRepository(db)
 
 
+class FakeRedis:
+    def __init__(self) -> None:
+        self.store: dict[str, str] = {}
+
+    async def get(self, key: str) -> str | None:
+        return self.store.get(key)
+
+    async def set(self, key: str, value: str, ex: int | None = None) -> None:
+        self.store[key] = value
+
+
+class FakeEmbedder:
+    def __init__(self, vectors: dict[str, list[float]]) -> None:
+        self.vectors = vectors
+
+    async def embed_one(self, text: str) -> list[float]:
+        return self.vectors[text]
+
+
+def _cache(*, embedder: FakeEmbedder | None = None) -> AnswerCache:
+    settings = ChatSettings(answer_cache_enabled=True, redis_url="")
+    cache = build_answer_cache(settings, redis=FakeRedis(), embedder=embedder)
+    assert cache is not None
+    return cache
+
+
 def _blocking_guardrail(category: str = "jailbreak") -> SemanticGuardrail:
     model = TestModel(custom_output_args={"blocked": True, "category": category, "reason": "x"})
-    guardrail = build_semantic_guardrail(
-        ChatSettings(semantic_guardrail_enabled=True), model=model
-    )
+    guardrail = build_semantic_guardrail(ChatSettings(semantic_guardrail_enabled=True), model=model)
     assert guardrail is not None
     return guardrail
 
@@ -85,6 +113,7 @@ def _make_client(
     gateway: FakeGateway | None = None,
     agent: Agent[AnswerDeps, AnswerResult] | None = None,
     guardrail: SemanticGuardrail | None = None,
+    cache: AnswerCache | None = None,
 ) -> tuple[TestClient, FakeGateway]:
     gateway = gateway or FakeGateway()
     settings = ChatSettings(jwt_secret_key=_SECRET, rate_limit_enabled=False)
@@ -95,6 +124,7 @@ def _make_client(
     app.dependency_overrides[get_gateway] = lambda: gateway
     app.dependency_overrides[get_answer_agent] = lambda: agent
     app.dependency_overrides[get_semantic_guardrail] = lambda: guardrail
+    app.dependency_overrides[get_answer_cache] = lambda: cache
     return TestClient(app), gateway
 
 
@@ -166,9 +196,7 @@ async def test_anonymous_can_continue_anonymous_session_by_capability(repo) -> N
     client, _ = _make_client(repo, agent=_answer_agent())
     conv = await repo.create_conversation(None)
 
-    resp = client.post(
-        "/api/chat", json={"message": "Dalej", "session_id": conv.session_id}
-    )
+    resp = client.post("/api/chat", json={"message": "Dalej", "session_id": conv.session_id})
 
     assert resp.status_code == 200
     assert resp.json()["session_id"] == conv.session_id
@@ -192,9 +220,7 @@ async def test_anonymous_cannot_hijack_logged_in_session(repo) -> None:
     client, _ = _make_client(repo, agent=_answer_agent())
     conv = await repo.create_conversation("owner")
 
-    resp = client.post(
-        "/api/chat", json={"message": "hej", "session_id": conv.session_id}
-    )
+    resp = client.post("/api/chat", json={"message": "hej", "session_id": conv.session_id})
 
     assert resp.status_code == 404
 
@@ -245,7 +271,7 @@ async def test_over_quota_is_429_before_any_mcp_work(repo, monkeypatch) -> None:
     resp = client.post("/api/chat", json={"message": "Pytanie?"})
 
     assert resp.status_code == 429
-    assert gateway.calls == []  # rejected before MCP/LLM work
+    assert gateway.calls == []
     assert await repo.get_history("any") == []
 
 
@@ -284,3 +310,76 @@ async def test_semantic_guardrail_blocks_answer_when_enabled(repo) -> None:
     assert body["metadata"]["source"] == SOURCE_GUARDRAIL_BLOCKED
     history = await repo.get_history(body["session_id"])
     assert history[1].content == SAFE_REFUSAL
+
+
+async def test_answer_cache_miss_generates_then_populates(repo) -> None:
+    cache = _cache()
+    client, gateway = _make_client(repo, agent=_answer_agent("Odpowiedź."), cache=cache)
+
+    resp = client.post("/api/chat", json={"message": "Gdzie jest sala 301?"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["message"] == "Odpowiedź."
+    assert body["metadata"]["source"] == SOURCE_KNOWLEDGE_GRAPH
+    assert len(gateway.calls) == 1
+    assert await cache.lookup("Gdzie jest sala 301?") == "Odpowiedź."
+
+
+async def test_answer_cache_hit_skips_pipeline(repo) -> None:
+    cache = _cache()
+    await cache.store("Gdzie jest sala 301?", "Z cache.")
+    client, gateway = _make_client(repo, agent=_answer_agent("Odpowiedź."), cache=cache)
+
+    resp = client.post("/api/chat", json={"message": "Gdzie jest sala 301?"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["message"] == "Z cache."
+    assert body["metadata"]["source"] == SOURCE_CACHE
+    assert gateway.calls == []
+    history = await repo.get_history(body["session_id"])
+    assert history[1].content == "Z cache."
+
+
+async def test_answer_cache_only_used_for_first_turn(repo) -> None:
+    cache = _cache()
+    await cache.store("Kontynuacja", "Z cache.")
+    conv = await repo.create_conversation("user-1")
+    await repo.append_message(conv.session_id, MessageRole.USER, "Wczesniej")
+    await repo.append_message(conv.session_id, MessageRole.ASSISTANT, "Odpowiedz")
+    client, gateway = _make_client(repo, agent=_answer_agent("Świeża."), cache=cache)
+
+    resp = client.post(
+        "/api/chat",
+        json={"message": "Kontynuacja", "session_id": conv.session_id},
+        headers=_auth("user-1"),
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["message"] == "Świeża."
+    assert body["metadata"]["source"] == SOURCE_KNOWLEDGE_GRAPH
+    assert len(gateway.calls) == 1
+
+
+async def test_reworded_question_served_from_similarity_cache(repo) -> None:
+    embedder = FakeEmbedder(
+        {
+            "Gdzie jest sala 301?": [1.0, 0.0, 0.0],
+            "W którym budynku jest sala 301?": [0.99, 0.01, 0.0],
+        }
+    )
+    cache = _cache(embedder=embedder)
+    client, gateway = _make_client(repo, agent=_answer_agent("Sala 301 jest w C-16."), cache=cache)
+
+    first = client.post("/api/chat", json={"message": "Gdzie jest sala 301?"})
+    assert first.json()["metadata"]["source"] == SOURCE_KNOWLEDGE_GRAPH
+
+    second = client.post("/api/chat", json={"message": "W którym budynku jest sala 301?"})
+
+    assert second.status_code == 200
+    body = second.json()
+    assert body["message"] == "Sala 301 jest w C-16."
+    assert body["metadata"]["source"] == SOURCE_CACHE
+    assert len(gateway.calls) == 1

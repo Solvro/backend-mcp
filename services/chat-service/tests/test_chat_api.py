@@ -85,9 +85,17 @@ class FakeRedis:
         self.store[key] = value
 
 
-def _cache() -> AnswerCache:
+class FakeEmbedder:
+    def __init__(self, vectors: dict[str, list[float]]) -> None:
+        self.vectors = vectors
+
+    async def embed_one(self, text: str) -> list[float]:
+        return self.vectors[text]
+
+
+def _cache(*, embedder: FakeEmbedder | None = None) -> AnswerCache:
     settings = ChatSettings(answer_cache_enabled=True, redis_url="")
-    cache = build_answer_cache(settings, redis=FakeRedis())
+    cache = build_answer_cache(settings, redis=FakeRedis(), embedder=embedder)
     assert cache is not None
     return cache
 
@@ -263,7 +271,7 @@ async def test_over_quota_is_429_before_any_mcp_work(repo, monkeypatch) -> None:
     resp = client.post("/api/chat", json={"message": "Pytanie?"})
 
     assert resp.status_code == 429
-    assert gateway.calls == []  # rejected before MCP/LLM work
+    assert gateway.calls == []
     assert await repo.get_history("any") == []
 
 
@@ -314,7 +322,7 @@ async def test_answer_cache_miss_generates_then_populates(repo) -> None:
     body = resp.json()
     assert body["message"] == "Odpowiedź."
     assert body["metadata"]["source"] == SOURCE_KNOWLEDGE_GRAPH
-    assert len(gateway.calls) == 1  # generated via the pipeline on a miss
+    assert len(gateway.calls) == 1
     assert await cache.lookup("Gdzie jest sala 301?") == "Odpowiedź."
 
 
@@ -329,7 +337,7 @@ async def test_answer_cache_hit_skips_pipeline(repo) -> None:
     body = resp.json()
     assert body["message"] == "Z cache."
     assert body["metadata"]["source"] == SOURCE_CACHE
-    assert gateway.calls == []  # served from cache, no MCP/LLM work
+    assert gateway.calls == []
     history = await repo.get_history(body["session_id"])
     assert history[1].content == "Z cache."
 
@@ -350,7 +358,28 @@ async def test_answer_cache_only_used_for_first_turn(repo) -> None:
 
     assert resp.status_code == 200
     body = resp.json()
-    # History is present, so the cached entry is ignored and the answer regenerates.
     assert body["message"] == "Świeża."
     assert body["metadata"]["source"] == SOURCE_KNOWLEDGE_GRAPH
+    assert len(gateway.calls) == 1
+
+
+async def test_reworded_question_served_from_similarity_cache(repo) -> None:
+    embedder = FakeEmbedder(
+        {
+            "Gdzie jest sala 301?": [1.0, 0.0, 0.0],
+            "W którym budynku jest sala 301?": [0.99, 0.01, 0.0],
+        }
+    )
+    cache = _cache(embedder=embedder)
+    client, gateway = _make_client(repo, agent=_answer_agent("Sala 301 jest w C-16."), cache=cache)
+
+    first = client.post("/api/chat", json={"message": "Gdzie jest sala 301?"})
+    assert first.json()["metadata"]["source"] == SOURCE_KNOWLEDGE_GRAPH
+
+    second = client.post("/api/chat", json={"message": "W którym budynku jest sala 301?"})
+
+    assert second.status_code == 200
+    body = second.json()
+    assert body["message"] == "Sala 301 jest w C-16."
+    assert body["metadata"]["source"] == SOURCE_CACHE
     assert len(gateway.calls) == 1

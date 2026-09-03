@@ -135,8 +135,6 @@ def build_chat_router(settings: ChatSettings) -> APIRouter:
 
         trace_id = new_trace_id()
         source = SOURCE_KNOWLEDGE_GRAPH
-        # A single-shot question (no prior turns) is safe to serve from cache;
-        # follow-ups depend on conversation context, so they always regenerate.
         cacheable_turn = cache is not None and not history
         answer: str | None = None
 

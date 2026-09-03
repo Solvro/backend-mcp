@@ -50,6 +50,17 @@ class ChatSettings(CommonSettings):
     answer_cache_enabled: bool = True
     answer_cache_ttl_seconds: int = 3600
 
+    embedding_enabled: bool = False
+    embedding_provider: str = ""  # "openai" | "gemini"; "" auto-selects like the answer model
+    embedding_openai_model: str = "text-embedding-3-small"
+    embedding_gemini_model: str = "text-embedding-004"
+    embedding_batch_max_size: int = 128
+    embedding_batch_window_ms: float = 10.0
+    embedding_max_concurrent_batches: int = 4
+
+    answer_cache_similarity_threshold: float = 0.92
+    answer_cache_similarity_max_entries: int = 100
+
     semantic_guardrail_enabled: bool = False
     semantic_guardrail_temperature: float = 0.0
 

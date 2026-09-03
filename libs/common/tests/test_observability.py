@@ -10,6 +10,7 @@ from common.observability import (
     is_langfuse_enabled,
     new_trace_id,
     shutdown_langfuse,
+    start_span,
     start_turn_trace,
     use_trace_id,
 )
@@ -237,3 +238,20 @@ def test_start_turn_trace_uses_explicit_session_id(fake_tracing) -> None:
         pass
 
     assert fake_tracing["propagate"]["session_id"] == "sess-9"
+
+
+def test_start_span_disabled_yields_none() -> None:
+    with start_span("mcp.knowledge_graph", input="q", settings=_settings()) as span:
+        assert span is None
+
+
+def test_start_span_opens_child_observation(fake_tracing) -> None:
+    settings = _settings(langfuse_secret_key="sk", langfuse_public_key="pk")
+
+    with start_span("answer-llm", as_type="generation", input="pytanie", settings=settings) as span:
+        assert span is not None
+
+    obs = _TracingLangfuse.last.observations[0]
+    assert obs.kwargs["name"] == "answer-llm"
+    assert obs.kwargs["as_type"] == "generation"
+    assert obs.kwargs["input"] == "pytanie"

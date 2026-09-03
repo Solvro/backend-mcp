@@ -47,6 +47,9 @@ class ChatSettings(CommonSettings):
 
     answer_kg_retrieval_attempts: int = 3
 
+    answer_cache_enabled: bool = True
+    answer_cache_ttl_seconds: int = 3600
+
     semantic_guardrail_enabled: bool = False
     semantic_guardrail_temperature: float = 0.0
 

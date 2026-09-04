@@ -16,7 +16,7 @@ repos:
           - commit-msg
       - id: pytest
         name: pytest (excluding e2e)
-        entry: pytest -m "not e2e and not integration"
+        entry: pytest -m "not e2e"
         language: system
         pass_filenames: false
         stages:

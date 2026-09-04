@@ -3,33 +3,20 @@ import logging
 import random
 from email.message import EmailMessage
 from functools import lru_cache
-from typing import (
-    Any,
-    Awaitable,
-    Callable,
-    Dict,
-    List,
-    Optional,
-    Protocol,
-    Tuple,
-    runtime_checkable,
-)
+from typing import Any, Awaitable, Callable, Protocol, runtime_checkable
 
-from common.errors import EmailSendError
+from common.errors import EmailSendError, NonRetriableError
 from common.settings import CommonSettings
 
 logger = logging.getLogger(__name__)
-
-
-
 @runtime_checkable
 class EmailSender(Protocol):
     async def send(
         self,
-        to: List[str],
+        to: list[str],
         subject: str,
         plain: str,
-        html: Optional[str] = None,
+        html: str | None = None,
     ) -> None:
         ...
 
@@ -39,10 +26,10 @@ class NoopEmailSender:
 
     async def send(
         self,
-        to: List[str],
+        to: list[str],
         subject: str,
         plain: str,
-        html: Optional[str] = None,
+        html: str | None = None,
     ) -> None:
         return None
 
@@ -52,33 +39,43 @@ class ConsoleEmailSender:
 
     async def send(
         self,
-        to: List[str],
+        to: list[str],
         subject: str,
         plain: str,
-        html: Optional[str] = None,
+        html: str | None = None,
     ) -> None:
         logger.info("email: subject=%s sent (console)", subject)
 
 
-def _render_template(name: str, context: Optional[Dict] = None) -> Tuple[str, Optional[str]]:
+def render_template(name: str, context: dict[str, Any] | None = None) -> tuple[str, str | None]:
+    """Renders required plaintext (.txt) and optional (.html) templates."""
     try:
-        env = _get_jinja_env()
-    except RuntimeError as e:
-        logger.debug("skipping template rendering: %s", e)
-        return "", None
+        from jinja2.exceptions import TemplateError, TemplateNotFound
+    except ImportError as e:
+        raise RuntimeError("jinja2 is required for template rendering") from e
 
+    env = _get_jinja_env()
     ctx = context or {}
-    txt: Optional[str] = None
-    html: Optional[str] = None
+
     try:
         txt = env.get_template(f"email/{name}.txt").render(**ctx)
-    except Exception as e:
-        logger.warning("failed to render plaintext template email/%s.txt: %s", name, e)
+    except TemplateNotFound:
+        logger.error("missing required email template: email/%s.txt", name)
+        raise NonRetriableError() from None
+    except TemplateError as e:
+        logger.error("failed to render plaintext template email/%s.txt: %s", name, e)
+        raise NonRetriableError() from None
+
+    html: str | None = None
     try:
         html = env.get_template(f"email/{name}.html").render(**ctx)
-    except Exception as e:
-        logger.warning("failed to render html template email/%s.html: %s", name, e)
-    return txt or "", html
+    except TemplateNotFound:
+        pass
+    except TemplateError as e:
+        logger.error("failed to render html template email/%s.html: %s", name, e)
+        raise NonRetriableError() from None
+
+    return txt, html
 
 
 @lru_cache(maxsize=1)
@@ -96,33 +93,36 @@ def _get_jinja_env() -> Any:
 
 async def _retry(
     coro_factory: Callable[[], Awaitable[Any]],
-    settings: Optional[CommonSettings] = None,
+    settings: CommonSettings | None = None,
+    log_extra: dict[str, Any] | None = None,
 ) -> Any:
     s = settings or CommonSettings()
     attempts = int(s.email_retry_attempts)
     base = float(s.email_retry_base_delay)
     max_delay = float(s.email_retry_max_delay)
+    if attempts <= 0:
+        raise ValueError("email_retry_attempts must be greater than 0")
     for attempt in range(1, attempts + 1):
         try:
             return await coro_factory()
         except Exception as e:
-            if attempt == attempts:
-                logger.exception("email send failed after retries")
-                raise EmailSendError() from e
+            if isinstance(e, NonRetriableError) or attempt == attempts:
+                logger.error("email send failed", extra=(log_extra or {}))
+                raise EmailSendError() from None
             delay = min(max_delay, base * (2 ** (attempt - 1)) + random.uniform(0, base))
             await asyncio.sleep(delay)
 
 
 class SMTPEmailSender:
-    def __init__(self, settings: Optional[CommonSettings] = None):
+    def __init__(self, settings: CommonSettings | None = None):
         self.settings = settings or CommonSettings()
 
     async def send(
         self,
-        to: List[str],
+        to: list[str],
         subject: str,
         plain: str,
-        html: Optional[str] = None,
+        html: str | None = None,
     ) -> None:
         msg = EmailMessage()
         msg["Subject"] = subject
@@ -143,17 +143,38 @@ class SMTPEmailSender:
                 port=self.settings.smtp_port,
                 timeout=self.settings.smtp_timeout,
             )
-            async with smtp:
-                if self.settings.smtp_starttls:
-                    await smtp.starttls()
-                if self.settings.smtp_user and self.settings.smtp_pass:
-                    await smtp.login(self.settings.smtp_user, self.settings.smtp_pass)
-                await smtp.send_message(msg)
+            try:
+                async with smtp:
+                    if self.settings.smtp_starttls:
+                        await smtp.starttls()
+                    if self.settings.smtp_user and self.settings.smtp_pass:
+                        await smtp.login(self.settings.smtp_user, self.settings.smtp_pass)
+                    await smtp.send_message(msg)
 
-        await _retry(_send, settings=self.settings)
+            except (
+                aiosmtplib.SMTPAuthenticationError,
+                aiosmtplib.SMTPRecipientsRefused,
+                aiosmtplib.SMTPRecipientRefused,
+                aiosmtplib.SMTPSenderRefused,
+                aiosmtplib.SMTPDataError,
+                aiosmtplib.SMTPHeloError,
+                aiosmtplib.SMTPNotSupported,
+                ValueError,
+            ):
+                raise NonRetriableError() from None
+            except aiosmtplib.SMTPResponseException as e:
+                try:
+                    code = int(getattr(e, "code", 0))
+                except Exception:
+                    code = 0
+                if 500 <= code < 600:
+                    raise NonRetriableError() from None
+                raise
+
+        await _retry(_send, settings=self.settings, log_extra={"subject": subject})
 
 
-def get_email_sender(settings: Optional[CommonSettings] = None) -> EmailSender:
+def get_email_sender(settings: CommonSettings | None = None) -> EmailSender:
     s = settings or CommonSettings()
     provider = (s.smtp_provider or "smtp").lower()
     if provider == "noop":
@@ -161,3 +182,19 @@ def get_email_sender(settings: Optional[CommonSettings] = None) -> EmailSender:
     if provider == "console":
         return ConsoleEmailSender()
     return SMTPEmailSender(s)
+
+
+async def send_template_email(
+    sender: EmailSender,
+    to: list[str],
+    subject: str,
+    template_name: str,
+    context: dict[str, Any] | None = None,
+) -> None:
+    """Entry point for templated emails
+
+    Renders the required plaintext template and optional HTML template using
+    `render_template`, then sends the message via the provided `sender`.
+    """
+    plain, html = render_template(template_name, context)
+    await sender.send(to=to, subject=subject, plain=plain, html=html)

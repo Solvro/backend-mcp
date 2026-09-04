@@ -28,3 +28,8 @@ services:
     image: mccutchen/go-httpbin:v2.15.0
     ports:
       - "18080:8080"
+  mailpit:
+    image: mailpit/mailpit:latest
+    ports:
+      - "1025:1025" # SMTP
+      - "18025:8025" # web UI

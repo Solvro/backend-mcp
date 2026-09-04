@@ -15,6 +15,7 @@ dependencies = [
     "common",
     "langfuse>=3.6.2",
     "fastmcp>=3.4.7",
+    "pydantic-ai-slim[google,openai]>=0.0.14",
 ]
 
 [tool.hatch.build.targets.wheel]

@@ -1,0 +1,10 @@
+Hi,
+
+Please verify your email by visiting the following link:
+
+{{ verify_url }}
+
+If you did not request this, you can ignore this message.
+
+Thanks,
+The team

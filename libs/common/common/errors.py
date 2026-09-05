@@ -56,6 +56,20 @@ class UpstreamError(AppError):
     detail = "Error communicating with upstream service."
 
 
+class EmailSendError(UpstreamError):
+    type_uri = f"{ERROR_TYPE_BASE_URL}/email-error"
+    title = "Email Send Error"
+    status_code = 502
+    detail = "Failed to send email to upstream provider."
+
+
+class NonRetriableError(EmailSendError):
+    type_uri = f"{ERROR_TYPE_BASE_URL}/email-non-retriable"
+    title = "Non-Retriable Email Error"
+    status_code = 502
+    detail = "The email operation failed with a non-retriable error."
+
+
 class ServiceUnavailableError(UpstreamError):
     type_uri = f"{ERROR_TYPE_BASE_URL}/service-unavailable"
     title = "Service Unavailable"

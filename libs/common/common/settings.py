@@ -82,3 +82,32 @@ class CommonSettings(BaseSettings):
     ]
 
     max_request_body_size: int = 1 * 1024 * 1024
+
+    # Email / SMTP settings
+    smtp_provider: str = "smtp"
+    smtp_host: str = Field(
+        default_factory=lambda: get_secrets_provider().get("SMTP_HOST", ""),
+    )
+    smtp_port: int = Field(
+        default_factory=lambda: int(get_secrets_provider().get("SMTP_PORT", "0") or 0),
+    )
+    smtp_user: str = Field(
+        default_factory=lambda: get_secrets_provider().get("SMTP_USER", ""),
+    )
+    smtp_pass: str = Field(
+        default_factory=lambda: get_secrets_provider().get("SMTP_PASS", ""),
+    )
+    smtp_from: str = Field(
+        default_factory=lambda: get_secrets_provider().get("SMTP_FROM", "no-reply@example.com"),
+    )
+    smtp_starttls: bool = Field(
+        default_factory=lambda: (
+            str(get_secrets_provider().get("SMTP_STARTTLS", "true")).lower() in ("1", "true", "yes")
+        ),
+    )
+    # Email retry/backoff configuration
+    email_retry_attempts: int = 3
+    email_retry_base_delay: float = 0.5
+    email_retry_max_delay: float = 5.0
+    # SMTP connection timeout in seconds
+    smtp_timeout: int = 10

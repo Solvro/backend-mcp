@@ -28,3 +28,17 @@ services:
     image: mccutchen/go-httpbin:v2.15.0
     ports:
       - "18080:8080"
+  mailpit:
+    image: axllent/mailpit:latest
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+    ports:
+      - "1025:1025" # SMTP
+      - "8025:8025" # web UI
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8025/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 3s

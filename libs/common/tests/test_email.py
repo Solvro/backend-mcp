@@ -2,6 +2,7 @@ import sys
 import types
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 from common.email import (
     ConsoleEmailSender,
@@ -97,12 +98,39 @@ async def test_smtp_sender_happy_path(monkeypatch):
     await sender.send(["test@example.com"], "subj", "plain")
     assert sent["called"]
 
-
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_smtp_sender_against_mailpit(mailpit_settings):
     sender = SMTPEmailSender(mailpit_settings)
-    await sender.send(["test@example.com"], "integration test", "plain body")
+    recipient = "test@example.com"
+    subject = "integration test"
+    body = "plain body"
+
+    await sender.send([recipient], subject, body)
+
+    api_url = f"http://{mailpit_settings.smtp_host}:8025"
+
+    async with httpx.AsyncClient(base_url=api_url) as client:
+        response = await client.get("/api/v1/messages")
+        assert response.status_code == 200
+
+        messages = response.json()["messages"] or []
+
+        matching = [
+            message
+            for message in messages
+            if message["Subject"] == subject
+            and any(to["Address"] == recipient for to in message["To"])
+        ]
+
+        assert matching, "Expected message was not delivered to Mailpit"
+
+        message_id = matching[0]["ID"]
+        response = await client.get(f"/api/v1/message/{message_id}")
+        assert response.status_code == 200
+
+        message = response.json()
+        assert body in message["Text"]
 
 
 @pytest.mark.unit

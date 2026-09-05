@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import random
+from dataclasses import dataclass
 from email.message import EmailMessage
 from functools import lru_cache
 from typing import Any, Awaitable, Callable, Protocol, runtime_checkable
@@ -9,6 +10,23 @@ from common.errors import EmailSendError, NonRetriableError
 from common.settings import CommonSettings
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class EmailFailure:
+    exception_type: str
+    smtp_code: int | None = None
+
+    @classmethod
+    def from_exception(cls, exc: Exception) -> "EmailFailure":
+        target = exc.__cause__ or exc
+        code = getattr(target, "code", None)
+        return cls(
+            exception_type=type(target).__name__,
+            smtp_code=code if isinstance(code, int) else None,
+        )
+
+
 @runtime_checkable
 class EmailSender(Protocol):
     async def send(
@@ -107,7 +125,13 @@ async def _retry(
             return await coro_factory()
         except Exception as e:
             if isinstance(e, NonRetriableError) or attempt == attempts:
-                logger.error("email send failed", extra=(log_extra or {}))
+                failure = EmailFailure.from_exception(e.__cause__ or e)
+                logger.error(
+                    "email send failed: type=%s smtp_code=%s",
+                    failure.exception_type,
+                    failure.smtp_code,
+                    extra=(log_extra or {}),
+                )
                 raise EmailSendError() from None
             delay = min(max_delay, base * (2 ** (attempt - 1)) + random.uniform(0, base))
             await asyncio.sleep(delay)
@@ -168,7 +192,7 @@ class SMTPEmailSender:
                 except Exception:
                     code = 0
                 if 500 <= code < 600:
-                    raise NonRetriableError() from None
+                    raise NonRetriableError() from e
                 raise
 
         await _retry(_send, settings=self.settings, log_extra={"subject": subject})

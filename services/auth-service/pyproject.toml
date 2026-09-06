@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Authentication service for ml-mcp-backend"
 requires-python = ">=3.11"
 dependencies = [
+    "alembic>=1.16,<2",
     "fastapi>=0.110.0",
     "uvicorn>=0.28.0",
     "sqlalchemy[asyncio]>=2.0.0",

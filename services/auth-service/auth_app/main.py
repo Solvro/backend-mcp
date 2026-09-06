@@ -3,9 +3,9 @@ from common.health import build_health_router
 from common.logging import setup_logging
 from common.metrics import setup_metrics
 from common.middleware import setup_middleware
-from common.rate_limit import rate_limit
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI
 
+from auth_app.api.auth import router as auth_router
 from auth_app.health import build_dependencies
 from auth_app.settings import get_settings
 
@@ -28,8 +28,4 @@ app.include_router(
     )
 )
 
-
-# Placeholder endpoint until real implementation
-@app.post("/auth/login", dependencies=[Depends(rate_limit("auth:login", settings=settings))])
-async def login() -> dict[str, str]:
-    return {"status": "ok", "service": "auth-service"}
+app.include_router(auth_router)

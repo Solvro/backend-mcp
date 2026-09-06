@@ -11,9 +11,7 @@ def build_dependencies(settings: AuthSettings) -> list[Dependency]:
 
     if settings.database_url:
         dependencies.append(
-            Dependency(
-                name="postgres", probe=check_database, required=True, timeout=timeout
-            )
+            Dependency(name="postgres", probe=check_database, required=True, timeout=timeout)
         )
     if settings.redis_url:
         dependencies.append(

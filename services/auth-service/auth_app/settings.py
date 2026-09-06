@@ -17,6 +17,11 @@ class AuthSettings(CommonSettings):
     rate_limit: int = 5
     rate_limit_window_seconds: int = 60
 
+    verification_token_ttl_minutes: int = 120
+    verification_cooldown_minutes: int = 1
+
+    email_from: str = "noreply@example.com"
+
 
 @lru_cache
 def get_settings() -> AuthSettings:

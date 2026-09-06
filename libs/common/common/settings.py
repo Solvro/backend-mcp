@@ -20,7 +20,11 @@ class CommonSettings(BaseSettings):
     redis_url: str = Field(
         default_factory=lambda: get_secrets_provider().get("REDIS_URL", ""),
     )
+
     redis_key_prefix: str = "mcp"
+    frontend_url: str = Field(
+        default_factory=lambda: get_secrets_provider().get("FRONTEND_URL", ""),
+    )
 
     jwt_secret_key: str = Field(
         default_factory=lambda: get_secrets_provider().get("JWT_SECRET_KEY", ""),

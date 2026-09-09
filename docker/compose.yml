@@ -85,6 +85,7 @@ services:
     image: ml-mcp-backend/auth-service:dev
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-10.89.0.10}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-mcp_backend}
       REDIS_URL: redis://redis:6379
     ports:
@@ -110,10 +111,10 @@ services:
       dockerfile: services/chat-service/Dockerfile
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-10.89.0.10}
       MONGO_URI: mongodb://mongo:27017
       REDIS_URL: redis://redis:6379
-      MCP_SERVER_URL: ${MCP_SERVER_URL:-http://host.docker.internal:8005/mcp}
-
+      MCP_SERVER_URL: ${MCP_SERVER_URL:-http://mcp-server:8005/mcp}
     ports:
       - "8001:8000"
     depends_on:
@@ -127,9 +128,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    networks: [backend]
+    networks: [backend, solvro_internal]
 
   nginx:
     image: nginx:1.27-alpine
@@ -142,7 +141,9 @@ services:
         condition: service_healthy
       chat-service:
         condition: service_healthy
-    networks: [backend]
+    networks:
+      backend:
+        ipv4_address: 10.89.0.10
 
 volumes:
   pgdata:
@@ -152,3 +153,9 @@ volumes:
 networks:
   backend:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 10.89.0.0/24
+  solvro_internal:
+    external: true
+    name: solvro-mcp-internal

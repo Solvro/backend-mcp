@@ -33,8 +33,12 @@ build:
     docker build -f services/auth-service/Dockerfile -t ml-mcp-backend/auth-service:dev .
     docker build -f services/chat-service/Dockerfile -t ml-mcp-backend/chat-service:dev .
 
-up:
+up: network
     docker compose -f docker/compose.yml up -d --build --wait
+
+# Create the network shared with ml-mcp's mcp-server (idempotent; either stack may run it first)
+network:
+    docker network inspect solvro-mcp-internal >/dev/null 2>&1 || docker network create --internal solvro-mcp-internal
 
 down:
     docker compose -f docker/compose.yml down

@@ -26,6 +26,10 @@ def get_redis(settings: CommonSettings | None = None) -> Redis:
     return _client
 
 
+def redis_dependency() -> Redis:
+    return get_redis()
+
+
 async def check_redis() -> bool:
     await get_redis().ping()
     return True

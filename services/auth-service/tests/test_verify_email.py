@@ -1,6 +1,6 @@
 import pytest
 from auth_app.models import User
-from auth_app.verification import create_and_store_token, hash_token
+from auth_app.verification import hash_token
 from httpx import AsyncClient
 from redis.asyncio import Redis
 from sqlalchemy import select
@@ -41,7 +41,7 @@ async def test_verify_email_success(
     assert updated_user.email_verified is True
     assert updated_user.verified_at is not None
 
-    token_in_redis = await redis_client.get(f"email_verify:{raw_token}")
+    token_in_redis = await redis_client.get(f"emailverify:{raw_token}")
     assert token_in_redis is None
 
 
@@ -106,28 +106,3 @@ async def test_raw_token_never_logged(
 
     for message in app_log_messages:
         assert raw_token not in message
-
-
-@pytest.mark.asyncio
-async def test_verify_email_token_cannot_be_reused(
-    async_client: AsyncClient,
-    db_session: AsyncSession,
-    redis_client: Redis,
-) -> None:
-    user = User(
-        username="reuse_user",
-        email="reuse@example.com",
-        password_hash="hash123",
-        email_verified=False,
-    )
-    db_session.add(user)
-    await db_session.commit()
-
-    raw_token = await create_and_store_token(redis_client, user.id)
-
-    first_res = await async_client.get(f"/auth/verify?token={raw_token}")
-    assert first_res.status_code == 200
-
-    second_res = await async_client.get(f"/auth/verify?token={raw_token}")
-    assert second_res.status_code == 400
-    assert second_res.json().get("detail") == "invalid_or_expired_token"

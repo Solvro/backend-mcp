@@ -37,67 +37,6 @@ async def test_login_success(
 
 
 @pytest.mark.asyncio
-async def test_login_blocked_unverified_email(
-    async_client: AsyncClient,
-    db_session: AsyncSession,
-) -> None:
-    pm = get_password_manager()
-    raw_password = "SecretPassword123!"
-    hashed_password = pm.hash_password(raw_password)
-
-    user = User(
-        username="unverified_bob",
-        email="bob@example.com",
-        password_hash=hashed_password,
-        is_active=True,
-        email_verified=False,
-    )
-    db_session.add(user)
-    await db_session.commit()
-
-    # 2. ACT
-    payload = {
-        "email": "bob@example.com",
-        "password": raw_password,
-    }
-    response = await async_client.post("/auth/login", json=payload)
-
-    assert response.status_code in (400, 401, 403)
-    detail = response.json().get("detail", "").lower()
-    assert "verified" in detail or "inactive" in detail
-
-
-@pytest.mark.asyncio
-async def test_login_invalid_credentials(
-    async_client: AsyncClient,
-    db_session: AsyncSession,
-) -> None:
-    raw_password = "SecretPassword123!"
-    pm = get_password_manager()
-    user = User(
-        username="charlie",
-        email="charlie@example.com",
-        password_hash=pm.hash_password(raw_password),
-        is_active=True,
-        email_verified=True,
-    )
-    db_session.add(user)
-    await db_session.commit()
-
-    wrong_pwd_res = await async_client.post(
-        "/auth/login",
-        json={"email": "charlie@example.com", "password": "WrongPassword123!"},
-    )
-    assert wrong_pwd_res.status_code in (400, 401)
-
-    wrong_email_res = await async_client.post(
-        "/auth/login",
-        json={"email": "nonexistent@example.com", "password": raw_password},
-    )
-    assert wrong_email_res.status_code in (400, 401)
-
-
-@pytest.mark.asyncio
 async def test_login_unverified_email(
     async_client: AsyncClient,
     db_session: AsyncSession,
@@ -121,3 +60,33 @@ async def test_login_unverified_email(
 
     assert response.status_code == 403
     assert response.json().get("detail") == "email_unverified"
+
+
+@pytest.mark.asyncio
+async def test_login_invalid_credentials(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    raw_password = "SecretPassword123!"
+    pm = get_password_manager()
+    user = User(
+        username="charlie",
+        email="charlie@example.com",
+        password_hash=pm.hash_password(raw_password),
+        is_active=True,
+        email_verified=True,
+    )
+    db_session.add(user)
+    await db_session.commit()
+
+    wrong_pwd_res = await async_client.post(
+        "/auth/login",
+        json={"email": "charlie@example.com", "password": "WrongPassword123!"},
+    )
+    assert wrong_pwd_res.status_code == 400
+
+    wrong_email_res = await async_client.post(
+        "/auth/login",
+        json={"email": "nonexistent@example.com", "password": raw_password},
+    )
+    assert wrong_email_res.status_code == 400

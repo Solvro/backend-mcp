@@ -184,9 +184,7 @@ async def test_similarity_embedding_error_fails_open() -> None:
 
 async def test_similarity_index_is_capped() -> None:
     redis = FakeRedis()
-    embedder = FakeEmbedder(
-        {"Q1": [1.0, 0.0], "Q2": [0.0, 1.0], "Q3": [1.0, 1.0]}
-    )
+    embedder = FakeEmbedder({"Q1": [1.0, 0.0], "Q2": [0.0, 1.0], "Q3": [1.0, 1.0]})
     cache = _cache(redis, embedder=embedder, max_entries=2)
 
     await cache.store("Q1", "A1")

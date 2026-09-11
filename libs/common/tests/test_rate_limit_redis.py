@@ -39,9 +39,7 @@ def _run(body: Callable[[CommonSettings], Awaitable[T]]) -> T:
 def test_allows_up_to_limit_then_blocks():
     async def body(settings: CommonSettings):
         return [
-            await check_rate_limit(
-                "chat", "user:1", limit=3, window_seconds=60, settings=settings
-            )
+            await check_rate_limit("chat", "user:1", limit=3, window_seconds=60, settings=settings)
             for _ in range(4)
         ]
 

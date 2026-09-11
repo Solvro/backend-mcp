@@ -110,9 +110,7 @@ class FakeOpenAIClient:
 
 
 async def test_openai_empty_input_returns_empty() -> None:
-    model = OpenAIEmbedder(
-        FakeOpenAIClient(), "m", max_batch_size=2, max_concurrent_batches=2
-    )
+    model = OpenAIEmbedder(FakeOpenAIClient(), "m", max_batch_size=2, max_concurrent_batches=2)
     assert await model.embed([]) == []
 
 

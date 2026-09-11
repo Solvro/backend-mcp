@@ -99,9 +99,9 @@ class ConversationRepository:
     ) -> list[Message]:
         query = self._messages.find({"session_id": session_id}, _NO_ID)
         if limit is None:
-            docs = await query.sort(
-                [("timestamp", ASCENDING), ("_id", ASCENDING)]
-            ).to_list(length=None)
+            docs = await query.sort([("timestamp", ASCENDING), ("_id", ASCENDING)]).to_list(
+                length=None
+            )
         else:
             docs = (
                 await query.sort([("timestamp", DESCENDING), ("_id", DESCENDING)])

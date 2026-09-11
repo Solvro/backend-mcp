@@ -104,9 +104,7 @@ async def test_history_of_other_user_is_404(client: TestClient, repo) -> None:
 
 
 def test_history_limit_out_of_range_is_422(client: TestClient) -> None:
-    resp = client.get(
-        "/api/sessions/x/history", params={"limit": 0}, headers=_auth("user-1")
-    )
+    resp = client.get("/api/sessions/x/history", params={"limit": 0}, headers=_auth("user-1"))
     assert resp.status_code == 422
 
 
@@ -146,9 +144,7 @@ async def test_delete_removes_session(client: TestClient, repo) -> None:
     assert follow_up.status_code == 404
 
 
-async def test_delete_other_users_session_is_404_and_keeps_it(
-    client: TestClient, repo
-) -> None:
+async def test_delete_other_users_session_is_404_and_keeps_it(client: TestClient, repo) -> None:
     conv = await repo.create_conversation("owner")
 
     resp = client.delete(f"/api/sessions/{conv.session_id}", headers=_auth("intruder"))
@@ -160,9 +156,7 @@ async def test_delete_other_users_session_is_404_and_keeps_it(
 async def test_deactivate_reflected_in_reads(client: TestClient, repo) -> None:
     conv = await repo.create_conversation("user-1")
 
-    resp = client.post(
-        f"/api/sessions/{conv.session_id}/deactivate", headers=_auth("user-1")
-    )
+    resp = client.post(f"/api/sessions/{conv.session_id}/deactivate", headers=_auth("user-1"))
     assert resp.status_code == 200
     assert resp.json()["is_active"] is False
 
@@ -173,9 +167,7 @@ async def test_deactivate_reflected_in_reads(client: TestClient, repo) -> None:
 async def test_deactivate_other_users_session_is_404(client: TestClient, repo) -> None:
     conv = await repo.create_conversation("owner")
 
-    resp = client.post(
-        f"/api/sessions/{conv.session_id}/deactivate", headers=_auth("intruder")
-    )
+    resp = client.post(f"/api/sessions/{conv.session_id}/deactivate", headers=_auth("intruder"))
 
     assert resp.status_code == 404
     assert (await repo.get_conversation(conv.session_id)).is_active is True

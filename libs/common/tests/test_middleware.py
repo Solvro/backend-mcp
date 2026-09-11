@@ -50,8 +50,7 @@ def test_cors_middleware(settings):
     response = client.get("/test", headers={"Origin": "http://localhost:3000"})
 
     assert response.status_code == 200
-    assert response.headers.get(
-        "access-control-allow-origin") == "http://localhost:3000"
+    assert response.headers.get("access-control-allow-origin") == "http://localhost:3000"
     assert response.headers.get("access-control-allow-credentials") == "true"
 
 
@@ -66,9 +65,7 @@ def test_cors_middleware_with_unauthorized_origin(settings):
 
     client = TestClient(app)
 
-    response = client.get("/test", headers={
-        "Origin": "http://unauthorized"
-        })
+    response = client.get("/test", headers={"Origin": "http://unauthorized"})
 
     assert response.status_code == 200
     assert response.headers.get("access-control-allow-origin") is None
@@ -85,10 +82,13 @@ def test_cors_preflight_from_disallowed_origin_is_blocked(settings):
 
     client = TestClient(app)
 
-    response = client.options("/test", headers={
-        "Origin": "http://unauthorized",
-        "Access-Control-Request-Method": "GET",
-    })
+    response = client.options(
+        "/test",
+        headers={
+            "Origin": "http://unauthorized",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
 
     assert response.status_code == 400
     assert response.headers.get("access-control-allow-origin") is None
@@ -105,14 +105,16 @@ def test_cors_preflight_from_allowed_origin_is_permitted(settings):
 
     client = TestClient(app)
 
-    response = client.options("/test", headers={
-        "Origin": "http://localhost:3000",
-        "Access-Control-Request-Method": "GET",
-    })
+    response = client.options(
+        "/test",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
 
     assert response.status_code == 200
-    assert response.headers.get(
-        "access-control-allow-origin") == "http://localhost:3000"
+    assert response.headers.get("access-control-allow-origin") == "http://localhost:3000"
 
 
 @pytest.mark.unit
@@ -128,7 +130,10 @@ def test_request_id_is_propagated(settings):
 
     request_id = "test-request-id"
 
-    response = client.get("/test", headers={"X-Request-ID": request_id},)
+    response = client.get(
+        "/test",
+        headers={"X-Request-ID": request_id},
+    )
 
     assert response.status_code == 200
     assert response.headers["x-request-id"] == request_id

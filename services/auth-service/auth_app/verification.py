@@ -47,11 +47,16 @@ async def consume_token(redis: Redis, raw_token: str) -> int | None:
 
 
 async def is_on_cooldown(redis: Redis, email: str) -> bool:
-    """Check if the user is on cooldown for requesting a new verification token."""
+    """Check if the email is currently on cooldown."""
+    clean_email = email.lower().strip()
+    cooldown_key = f"cooldown:emailverify:{clean_email}"
+    return await redis.exists(cooldown_key) > 0
+
+
+async def set_cooldown(redis: Redis, email: str) -> None:
+    """Set the cooldown flag for the email."""
     settings = get_settings()
     clean_email = email.lower().strip()
     cooldown_key = f"cooldown:emailverify:{clean_email}"
     ttl_seconds = settings.verification_cooldown_minutes * 60
-
-    was_set = await redis.set(cooldown_key, "1", ex=ttl_seconds, nx=True)
-    return not was_set
+    await redis.set(cooldown_key, "1", ex=ttl_seconds)

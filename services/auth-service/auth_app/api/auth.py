@@ -1,6 +1,5 @@
 from datetime import datetime, timezone
 
-from auth_app.email import send_verification_email
 from auth_app.models import Role, User
 from auth_app.schemas import (
     LoginSchema,
@@ -10,9 +9,17 @@ from auth_app.schemas import (
 )
 from auth_app.security import create_access_token, get_password_manager
 from auth_app.settings import get_settings
-from auth_app.verification import consume_token, create_and_store_token, is_on_cooldown
+from auth_app.verification import (
+    consume_token,
+    create_and_store_token,
+    is_on_cooldown,
+    set_cooldown,
+)
 from common.db import get_session
-from common.redis import get_redis
+from common.email import get_email_sender, send_template_email
+from common.errors import EmailSendError, NonRetriableError
+from common.rate_limit import rate_limit
+from common.redis import redis_dependency
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from redis.asyncio import Redis
 from sqlalchemy import select
@@ -20,10 +27,42 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+settings = get_settings()
 
-async def send_verification_email_safe(email: str, link: str) -> None:
+register_limiter = rate_limit(
+    "auth:register",
+    settings=settings,
+    limit=settings.rate_limit_register,
+    window_seconds=settings.rate_limit_window_seconds,
+)
+
+login_limiter = rate_limit(
+    "auth:login",
+    settings=settings,
+    limit=settings.rate_limit_login,
+    window_seconds=settings.rate_limit_window_seconds,
+)
+
+resend_limiter = rate_limit(
+    "auth:resend",
+    settings=settings,
+    limit=settings.rate_limit_resend,
+    window_seconds=settings.rate_limit_window_seconds,
+)
+
+
+async def send_verification_email(email: str, username: str, link: str) -> None:
     try:
-        await send_verification_email(email, link)
+        sender = get_email_sender()
+        await send_template_email(
+            sender=sender,
+            to=[email],
+            subject="Account verification",
+            template_name="verification",
+            context={"username": username, "verify_link": link},
+        )
+    except (EmailSendError, NonRetriableError):
+        pass
     except Exception:
         pass
 
@@ -32,12 +71,13 @@ async def send_verification_email_safe(email: str, link: str) -> None:
     "/register",
     status_code=status.HTTP_201_CREATED,
     response_model=UserResponseSchema,
+    dependencies=[Depends(register_limiter)],
 )
 async def register(
     data: RegisterSchema,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_session),
-    redis: Redis = Depends(get_redis),
+    redis: Redis = Depends(redis_dependency),
 ):
     stmt = select(User).where((User.email == data.email) | (User.username == data.username))
     existing_user = (await db.execute(stmt)).scalar_one_or_none()
@@ -77,7 +117,7 @@ async def register(
     raw_token = await create_and_store_token(redis, user.id)
     settings = get_settings()
     verify_link = f"{settings.frontend_url.rstrip('/')}/auth/verify?token={raw_token}"
-    background_tasks.add_task(send_verification_email_safe, user.email, verify_link)
+    background_tasks.add_task(send_verification_email, user.email, user.username, verify_link)
 
     return UserResponseSchema(
         id=user.id,
@@ -89,7 +129,7 @@ async def register(
     )
 
 
-@router.post("/login")
+@router.post("/login", dependencies=[Depends(login_limiter)])
 async def login(data: LoginSchema, db: AsyncSession = Depends(get_session)):
     stmt = select(User).where(User.email == data.email)
     result = await db.execute(stmt)
@@ -117,7 +157,7 @@ async def login(data: LoginSchema, db: AsyncSession = Depends(get_session)):
 async def verify_email(
     token: str,
     db: AsyncSession = Depends(get_session),
-    redis: Redis = Depends(get_redis),
+    redis: Redis = Depends(redis_dependency),
 ):
     user_id = await consume_token(redis, token)
     if not user_id:
@@ -137,12 +177,12 @@ async def verify_email(
     return {"message": "Email verified successfully."}
 
 
-@router.post("/resend-verification")
+@router.post("/resend-verification", dependencies=[Depends(resend_limiter)])
 async def resend_verification(
     data: ResendVerificationEmailSchema,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_session),
-    redis: Redis = Depends(get_redis),
+    redis: Redis = Depends(redis_dependency),
 ):
     generic_response = {
         "message": "If the email is registered and unverified, a verification link has been sent."
@@ -156,9 +196,10 @@ async def resend_verification(
     user = result.scalar_one_or_none()
 
     if user and not user.email_verified:
+        await set_cooldown(redis, user.email)
         raw_token = await create_and_store_token(redis, user.id)
         settings = get_settings()
         verify_link = f"{settings.frontend_url.rstrip('/')}/auth/verify?token={raw_token}"
-        background_tasks.add_task(send_verification_email, user.email, verify_link)
+        background_tasks.add_task(send_verification_email, user.email, user.username, verify_link)
 
     return generic_response

@@ -158,9 +158,7 @@ async def test_sentinel_from_tool_yields_polite_no_info_reply() -> None:
     )
     assert agent is not None
 
-    result = await generate_answer(
-        agent, question="Nieistniejące?", history="", gateway=gateway
-    )
+    result = await generate_answer(agent, question="Nieistniejące?", history="", gateway=gateway)
 
     assert result.answer == NO_KNOWLEDGE_REPLY
     assert len(gateway.calls) == settings.answer_kg_retrieval_attempts
@@ -188,9 +186,7 @@ async def test_function_model_drives_deterministic_tool_flow() -> None:
 
     def respond(messages: list, info: AgentInfo) -> ModelResponse:
         last = messages[-1]
-        if isinstance(last, ModelRequest) and any(
-            p.part_kind == "tool-return" for p in last.parts
-        ):
+        if isinstance(last, ModelRequest) and any(p.part_kind == "tool-return" for p in last.parts):
             output_tool = info.output_tools[0]
             return ModelResponse(
                 parts=[

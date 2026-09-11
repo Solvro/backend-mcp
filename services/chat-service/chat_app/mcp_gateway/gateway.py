@@ -23,6 +23,7 @@ def is_no_knowledge(text: str) -> bool:
     stripped = text.strip()
     return stripped == NO_KNOWLEDGE_SENTINEL or stripped in _EMPTY_RESULTS
 
+
 _TRANSIENT_EXCEPTIONS: tuple[type[BaseException], ...] = (
     TimeoutError,
     ConnectionError,
@@ -104,8 +105,7 @@ class KnowledgeGraphGateway:
                     await self._drop_client()
                     delay = self._backoff(attempt)
                     logger.warning(
-                        "MCP call failed (transient), retrying "
-                        "(attempt=%d/%d, delay=%.3fs)",
+                        "MCP call failed (transient), retrying (attempt=%d/%d, delay=%.3fs)",
                         attempt + 1,
                         self._max_retries,
                         delay,
@@ -119,9 +119,7 @@ class KnowledgeGraphGateway:
                     raise ServiceUnavailableError(
                         "The knowledge graph service is unavailable."
                     ) from exc
-                raise UpstreamError(
-                    "The knowledge graph service returned an error."
-                ) from exc
+                raise UpstreamError("The knowledge graph service returned an error.") from exc
 
     async def _call_tool_once(self, user_input: str, trace_id: str | None) -> str:
         client = await self._ensure_client()
@@ -165,9 +163,7 @@ class KnowledgeGraphGateway:
 
     @staticmethod
     def _join_text(result: Any) -> str:
-        return "\n".join(
-            block.text for block in result.content if hasattr(block, "text")
-        )
+        return "\n".join(block.text for block in result.content if hasattr(block, "text"))
 
     async def aclose(self) -> None:
         await self._drop_client()

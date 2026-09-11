@@ -96,9 +96,7 @@ def optional_auth(*, settings: CommonSettings) -> AuthDependency:
     return dependency
 
 
-def require_roles(
-    *required: str, settings: CommonSettings
-) -> Callable[[Request], Awaitable[str]]:
+def require_roles(*required: str, settings: CommonSettings) -> Callable[[Request], Awaitable[str]]:
     authenticate = require_auth(settings=settings)
 
     async def dependency(request: Request) -> str:

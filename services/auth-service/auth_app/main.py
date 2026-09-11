@@ -15,16 +15,16 @@ setup_logging(service_name="auth-service", log_level=settings.log_level)
 
 app = FastAPI(title="ml-mcp-backend · auth-service", version="0.1.0")
 
-setup_middleware(app, get_settings())
+setup_middleware(app, settings)
 
 register_exception_handlers(app)
 
-setup_metrics(app, get_settings())
+setup_metrics(app, settings)
 
 app.include_router(
     build_health_router(
         service_name="auth-service",
-        dependencies_provider=lambda: build_dependencies(get_settings()),
+        dependencies_provider=lambda: build_dependencies(settings),
     )
 )
 

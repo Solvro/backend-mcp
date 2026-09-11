@@ -7,6 +7,7 @@ from common.settings import CommonSettings
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 from starlette.requests import Request
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 
 def _request(headers: list[tuple[bytes, bytes]] | None = None, client=("1.2.3.4", 0)) -> Request:
@@ -23,9 +24,39 @@ def test_identity_prefers_authenticated_user():
 
 
 @pytest.mark.unit
-def test_identity_uses_forwarded_ip_when_anonymous():
+def test_identity_ignores_forwarded_for_header():
     req = _request(headers=[(b"x-forwarded-for", b"9.9.9.9, 10.0.0.1")])
-    assert _client_identity(req) == "ip:9.9.9.9"
+    assert _client_identity(req) == "ip:1.2.3.4"
+
+
+async def _client_seen_by_app(peer: str, forwarded: bytes, *, trusted: str) -> str:
+    seen: dict[str, tuple[str, int] | None] = {}
+
+    async def app(scope, receive, send):
+        seen["client"] = scope.get("client")
+
+    scope = {
+        "type": "http",
+        "headers": [(b"x-forwarded-for", forwarded)],
+        "client": (peer, 40000),
+    }
+    await ProxyHeadersMiddleware(app, trusted_hosts=trusted)(scope, None, None)
+    client = seen["client"]
+    assert client is not None
+    return client[0]
+
+
+@pytest.mark.unit
+async def test_uvicorn_rewrites_client_only_for_the_trusted_proxy():
+    assert (
+        await _client_seen_by_app("10.89.0.10", b"9.9.9.9, 203.0.113.7", trusted="10.89.0.10")
+        == "203.0.113.7"
+    )
+
+
+@pytest.mark.unit
+async def test_uvicorn_ignores_the_header_from_an_untrusted_peer():
+    assert await _client_seen_by_app("172.20.0.1", b"9.9.9.9", trusted="10.89.0.10") == "172.20.0.1"
 
 
 @pytest.mark.unit
@@ -40,9 +71,7 @@ def test_identity_unknown_without_client():
 
 @pytest.mark.unit
 def test_headers_include_retry_after_only_when_asked():
-    result = RateLimitResult(
-        allowed=False, limit=5, remaining=0, reset_seconds=12, retry_after=12
-    )
+    result = RateLimitResult(allowed=False, limit=5, remaining=0, reset_seconds=12, retry_after=12)
     allowed = _rate_limit_headers(result, include_retry_after=False)
     assert allowed == {"RateLimit-Limit": "5", "RateLimit-Remaining": "0", "RateLimit-Reset": "12"}
     assert "Retry-After" not in allowed

@@ -83,3 +83,26 @@ async def test_revoke_token_defaults_ttl_to_denylist(monkeypatch):
 
     _, stored_ttl = fake.store[denylist_key("jti-2", settings=SETTINGS)]
     assert stored_ttl == int(TTL.DENYLIST)
+
+
+@pytest.mark.unit
+def test_redis_dependency_keeps_request_body_flat():
+    from common.redis import redis_dependency
+    from fastapi import Depends, FastAPI
+    from pydantic import BaseModel
+
+    class Payload(BaseModel):
+        username: str
+        email: str
+
+    app = FastAPI()
+
+    @app.post("/thing")
+    async def create(data: Payload, redis=Depends(redis_dependency)):  # pragma: no cover
+        return {}
+
+    schema = app.openapi()["paths"]["/thing"]["post"]["requestBody"]["content"][
+        "application/json"
+    ]["schema"]
+
+    assert schema == {"$ref": "#/components/schemas/Payload"}

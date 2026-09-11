@@ -154,9 +154,7 @@ def test_decode_rejects_wrong_audience() -> None:
 
 def test_decode_tolerates_clock_skew_within_leeway() -> None:
     settings = _settings(jwt_leeway_seconds=60)
-    just_expired = _token(
-        {"sub": "u1", "exp": datetime.now(timezone.utc) - timedelta(seconds=10)}
-    )
+    just_expired = _token({"sub": "u1", "exp": datetime.now(timezone.utc) - timedelta(seconds=10)})
 
     claims = decode_access_token(just_expired, settings)
 

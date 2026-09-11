@@ -98,6 +98,7 @@ async def test_smtp_sender_happy_path(monkeypatch):
     await sender.send(["test@example.com"], "subj", "plain")
     assert sent["called"]
 
+
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_smtp_sender_against_mailpit(mailpit_settings):

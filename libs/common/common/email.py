@@ -35,8 +35,7 @@ class EmailSender(Protocol):
         subject: str,
         plain: str,
         html: str | None = None,
-    ) -> None:
-        ...
+    ) -> None: ...
 
 
 class NoopEmailSender:

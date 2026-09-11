@@ -60,9 +60,7 @@ PROHIBITED_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 def normalize_text(text: str) -> str:
     text = unicodedata.normalize("NFKC", text)
     return "".join(
-        ch
-        for ch in text
-        if unicodedata.category(ch) not in {"Cf", "Cc"} or ch in "\t\n\r"
+        ch for ch in text if unicodedata.category(ch) not in {"Cf", "Cc"} or ch in "\t\n\r"
     )
 
 

@@ -101,8 +101,8 @@ def test_redis_dependency_keeps_request_body_flat():
     async def create(data: Payload, redis=Depends(redis_dependency)):  # pragma: no cover
         return {}
 
-    schema = app.openapi()["paths"]["/thing"]["post"]["requestBody"]["content"][
-        "application/json"
-    ]["schema"]
+    schema = app.openapi()["paths"]["/thing"]["post"]["requestBody"]["content"]["application/json"][
+        "schema"
+    ]
 
     assert schema == {"$ref": "#/components/schemas/Payload"}

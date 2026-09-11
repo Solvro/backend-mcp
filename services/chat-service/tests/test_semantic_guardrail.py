@@ -25,9 +25,7 @@ def _verdict_model(**args: object) -> TestModel:
 
 
 def _enabled_guardrail(model: TestModel | FunctionModel) -> SemanticGuardrail:
-    guardrail = build_semantic_guardrail(
-        _settings(semantic_guardrail_enabled=True), model=model
-    )
+    guardrail = build_semantic_guardrail(_settings(semantic_guardrail_enabled=True), model=model)
     assert guardrail is not None
     return guardrail
 

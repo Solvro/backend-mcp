@@ -12,19 +12,15 @@ class JsonFormatter(logging.Formatter):
         self.service_name = service_name
 
     def format(self, record: logging.LogRecord) -> str:
-        dt = datetime.datetime.fromtimestamp(
-            record.created, datetime.timezone.utc
-            )
-        timestamp = dt.isoformat(
-            timespec="milliseconds"
-            ).replace("+00:00", "Z")
+        dt = datetime.datetime.fromtimestamp(record.created, datetime.timezone.utc)
+        timestamp = dt.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
         log_record = {
             "timestamp": timestamp,
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
-            "service_name": self.service_name
+            "service_name": self.service_name,
         }
 
         if (req_id := request_id_var.get()) is not None:

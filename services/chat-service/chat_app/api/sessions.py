@@ -53,9 +53,7 @@ def build_sessions_router(settings: ChatSettings) -> APIRouter:
         user_id: str = Depends(authenticated),
         repo: ConversationRepository = Depends(get_repository),
     ) -> list[Conversation]:
-        return await repo.list_by_user(
-            user_id, active_only=active_only, limit=limit, skip=skip
-        )
+        return await repo.list_by_user(user_id, active_only=active_only, limit=limit, skip=skip)
 
     @router.delete("/sessions/{session_id}", status_code=204)
     async def delete_session(

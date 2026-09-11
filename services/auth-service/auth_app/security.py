@@ -1,14 +1,37 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Final
 
+import jwt
 from argon2 import PasswordHasher, Type
 from argon2.exceptions import InvalidHashError, VerificationError
 
 from auth_app.settings import AuthSettings, get_settings
 
 _DEFAULT_ARGON2_TYPE: Final[Type] = Type.ID
+
+
+def create_access_token(user_id: int | str, expires_delta: timedelta | None = None) -> str:
+    """Generates JWT access token for the user."""
+    settings = get_settings()
+
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire_minutes = getattr(settings, "access_token_expire_minutes", 30)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=expire_minutes)
+
+    payload = {
+        "sub": str(user_id),
+        "exp": expire,
+        "iat": datetime.now(timezone.utc),
+    }
+
+    algorithm = getattr(settings, "jwt_algorithm", "HS256")
+    return jwt.encode(payload, settings.jwt_secret_key, algorithm=algorithm)
+
 
 class PasswordManager:
     """Manages password hashing and verification using Argon2."""

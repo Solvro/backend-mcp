@@ -49,9 +49,7 @@ async def test_required_down_is_unhealthy() -> None:
 
 
 async def test_optional_down_is_degraded_not_failed() -> None:
-    report = await run_health_checks(
-        [_dep("mongo", _up), _dep("mcp", _down, required=False)]
-    )
+    report = await run_health_checks([_dep("mongo", _up), _dep("mcp", _down, required=False)])
 
     assert report.status is HealthStatus.DEGRADED
     assert report.http_status == 200  # still serving
@@ -59,9 +57,7 @@ async def test_optional_down_is_degraded_not_failed() -> None:
 
 
 async def test_required_down_wins_over_optional_down() -> None:
-    report = await run_health_checks(
-        [_dep("mongo", _down), _dep("mcp", _down, required=False)]
-    )
+    report = await run_health_checks([_dep("mongo", _down), _dep("mcp", _down, required=False)])
 
     assert report.status is HealthStatus.UNHEALTHY
 
@@ -75,9 +71,7 @@ async def test_probe_timeout_counts_as_down() -> None:
 
 def _client(deps: list[Dependency], name: str = "svc") -> TestClient:
     app = FastAPI()
-    app.include_router(
-        build_health_router(service_name=name, dependencies_provider=lambda: deps)
-    )
+    app.include_router(build_health_router(service_name=name, dependencies_provider=lambda: deps))
     return TestClient(app)
 
 
@@ -125,9 +119,7 @@ def test_dependencies_provider_called_per_request() -> None:
         return [_dep("mongo", _up)]
 
     app = FastAPI()
-    app.include_router(
-        build_health_router(service_name="svc", dependencies_provider=provider)
-    )
+    app.include_router(build_health_router(service_name="svc", dependencies_provider=provider))
     client = TestClient(app)
 
     client.get("/health/ready")

@@ -134,9 +134,7 @@ async def revoke_token(
     await redis.set(denylist_key(jti, settings=settings), "1", ex=ttl)
 
 
-async def is_token_denylisted(
-    jti: str, *, settings: CommonSettings | None = None
-) -> bool:
+async def is_token_denylisted(jti: str, *, settings: CommonSettings | None = None) -> bool:
     redis = get_redis(settings)
     return await redis.exists(denylist_key(jti, settings=settings)) > 0
 
@@ -161,9 +159,7 @@ class QuotaResult:
 
 
 def _seconds_until_utc_midnight(now: datetime) -> int:
-    tomorrow = (now + timedelta(days=1)).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    )
+    tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     return max(1, ceil((tomorrow - now).total_seconds()))
 
 

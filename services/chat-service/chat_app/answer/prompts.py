@@ -9,8 +9,7 @@ SYSTEM_PROMPT = (
 )
 
 NO_KNOWLEDGE_REPLY = (
-    "Niestety nie znalazłem informacji na ten temat w bazie wiedzy "
-    "Politechniki Wrocławskiej."
+    "Niestety nie znalazłem informacji na ten temat w bazie wiedzy Politechniki Wrocławskiej."
 )
 
 _PROMPT_TEMPLATE = """\

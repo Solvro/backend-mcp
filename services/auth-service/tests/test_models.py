@@ -23,6 +23,8 @@ def test_auth_models_can_be_created_and_persisted() -> None:
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)
 
+    now = datetime.now(timezone.utc)
+
     with Session(engine) as session:
         role = Role(name="admin", description="Administrator")
         user = User(
@@ -30,13 +32,15 @@ def test_auth_models_can_be_created_and_persisted() -> None:
             email="alice@example.com",
             password_hash="hash-123",
             is_active=True,
+            email_verified=False,
+            verified_at=None,
             roles=[role],
         )
         refresh_token = RefreshToken(
             user=user,
             token_hash="token-hash",
             jti="jti-123",
-            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+            expires_at=now + timedelta(hours=1),
             revoked=False,
         )
 
@@ -58,3 +62,13 @@ def test_auth_models_can_be_created_and_persisted() -> None:
         assert saved_user.email == "alice@example.com"
         assert saved_user.email_verified is False
         assert saved_user.verified_at is None
+
+        saved_user.email_verified = True
+        saved_user.verified_at = now
+        session.commit()
+        session.refresh(saved_user)
+
+        assert saved_user.email_verified is True
+        assert saved_user.verified_at is not None
+        verified_at_utc = saved_user.verified_at.replace(tzinfo=timezone.utc)
+        assert verified_at_utc.timestamp() == pytest.approx(now.timestamp(), abs=1)

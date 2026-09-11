@@ -57,9 +57,7 @@ async def test_returns_tool_text_on_success() -> None:
         return f"graph context for: {user_input}"
 
     async with make_gateway(stub_server(handler)) as gw:
-        assert await gw.query("gdzie jest sala 101?") == (
-            "graph context for: gdzie jest sala 101?"
-        )
+        assert await gw.query("gdzie jest sala 101?") == ("graph context for: gdzie jest sala 101?")
 
 
 async def test_forwards_user_input_and_trace_id() -> None:

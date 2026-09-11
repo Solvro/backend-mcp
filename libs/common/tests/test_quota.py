@@ -68,9 +68,7 @@ def test_allows_up_to_limit_then_blocks() -> None:
     async def body(settings: CommonSettings):
         now = datetime(2026, 8, 23, 12, 0, 0, tzinfo=timezone.utc)
         results = [
-            await check_daily_quota(
-                "chat:message", "ip:a", limit=3, now=now, settings=settings
-            )
+            await check_daily_quota("chat:message", "ip:a", limit=3, now=now, settings=settings)
             for _ in range(4)
         ]
         return results
@@ -85,12 +83,8 @@ def test_quota_is_isolated_per_identity() -> None:
     async def body(settings: CommonSettings):
         now = datetime(2026, 8, 23, 12, 0, 0, tzinfo=timezone.utc)
         await check_daily_quota("chat:message", "ip:a", limit=1, now=now, settings=settings)
-        a = await check_daily_quota(
-            "chat:message", "ip:a", limit=1, now=now, settings=settings
-        )
-        b = await check_daily_quota(
-            "chat:message", "ip:b", limit=1, now=now, settings=settings
-        )
+        a = await check_daily_quota("chat:message", "ip:a", limit=1, now=now, settings=settings)
+        b = await check_daily_quota("chat:message", "ip:b", limit=1, now=now, settings=settings)
         return a, b
 
     blocked_a, fresh_b = _run(body)

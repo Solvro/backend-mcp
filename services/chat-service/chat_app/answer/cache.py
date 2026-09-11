@@ -54,9 +54,7 @@ class AnswerCache:
         return make_key(Namespace.CACHE, _ANSWER_SUBSPACE, digest, settings=self._settings)
 
     def _sim_index_key(self) -> str:
-        return make_key(
-            Namespace.CACHE, _ANSWER_SUBSPACE, _SIM_INDEX_KEY, settings=self._settings
-        )
+        return make_key(Namespace.CACHE, _ANSWER_SUBSPACE, _SIM_INDEX_KEY, settings=self._settings)
 
     async def lookup(self, question: str) -> str | None:
         try:
@@ -105,9 +103,7 @@ class AnswerCache:
             entries = [e for e in entries if e.get("exp", 0) > now]
             entries.append({"v": vector, "a": answer, "exp": now + self._ttl})
             entries = entries[-self._max_entries :]
-            await self._redis.set(
-                self._sim_index_key(), json.dumps(entries), ex=self._ttl
-            )
+            await self._redis.set(self._sim_index_key(), json.dumps(entries), ex=self._ttl)
         except Exception:
             logger.warning(
                 "Answer cache similarity store failed -> entry not indexed", exc_info=True

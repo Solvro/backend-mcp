@@ -20,7 +20,11 @@ class CommonSettings(BaseSettings):
     redis_url: str = Field(
         default_factory=lambda: get_secrets_provider().get("REDIS_URL", ""),
     )
+
     redis_key_prefix: str = "mcp"
+    frontend_url: str = Field(
+        default_factory=lambda: get_secrets_provider().get("FRONTEND_URL", ""),
+    )
 
     jwt_secret_key: str = Field(
         default_factory=lambda: get_secrets_provider().get("JWT_SECRET_KEY", ""),
@@ -37,9 +41,7 @@ class CommonSettings(BaseSettings):
         default_factory=lambda: get_secrets_provider().get("MONGO_URI", ""),
     )
     error_type_base_url: str = Field(
-        default_factory=lambda: get_secrets_provider().get(
-            "ERROR_TYPE_BASE_URL", ""
-            ),
+        default_factory=lambda: get_secrets_provider().get("ERROR_TYPE_BASE_URL", ""),
     )
 
     langfuse_secret_key: str = Field(

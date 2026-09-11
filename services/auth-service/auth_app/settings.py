@@ -14,8 +14,15 @@ class AuthSettings(CommonSettings):
     argon2_hash_len: int = 32
     argon2_salt_len: int = 16
     max_password_length: int = 128
-    rate_limit: int = 5
+    rate_limit_register: int = 5
+    rate_limit_login: int = 10
+    rate_limit_resend: int = 3
     rate_limit_window_seconds: int = 60
+
+    verification_token_ttl_minutes: int = 120
+    verification_cooldown_minutes: int = 1
+
+    email_from: str = "noreply@example.com"
 
 
 @lru_cache

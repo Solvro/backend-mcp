@@ -13,7 +13,6 @@ from auth_app.verification import (
     consume_token,
     create_and_store_token,
     is_on_cooldown,
-    set_cooldown,
 )
 from common.db import get_session
 from common.email import get_email_sender, send_template_email
@@ -188,18 +187,19 @@ async def resend_verification(
         "message": "If the email is registered and unverified, a verification link has been sent."
     }
 
-    if await is_on_cooldown(redis, data.email):
-        return generic_response
+    clean_email = data.email.lower().strip()
 
-    stmt = select(User).where(User.email == data.email.lower().strip())
+    stmt = select(User).where(User.email == clean_email)
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
 
     if user and not user.email_verified:
-        await set_cooldown(redis, user.email)
-        raw_token = await create_and_store_token(redis, user.id)
-        settings = get_settings()
-        verify_link = f"{settings.frontend_url.rstrip('/')}/auth/verify?token={raw_token}"
-        background_tasks.add_task(send_verification_email, user.email, user.username, verify_link)
+        if not await is_on_cooldown(redis, user.email):
+            raw_token = await create_and_store_token(redis, user.id)
+            settings = get_settings()
+            verify_link = f"{settings.frontend_url.rstrip('/')}/auth/verify?token={raw_token}"
+            background_tasks.add_task(
+                send_verification_email, user.email, user.username, verify_link
+                )
 
     return generic_response

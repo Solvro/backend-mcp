@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 
 from common.exceptions_handlers import register_exception_handlers
@@ -41,7 +42,9 @@ async def lifespan(app: FastAPI):
 
     if alg.startswith(("RS", "ES", "EdDSA")):
         if not settings.jwt_private_key or not settings.jwt_public_key:
-            settings.jwt_private_key, settings.jwt_public_key = generate_pem_rsa_keys()
+            settings.jwt_private_key, settings.jwt_public_key = await asyncio.to_thread(
+                generate_pem_rsa_keys
+                )
     elif alg.startswith("HS"):
         if not settings.jwt_secret_key:
             raise RuntimeError(

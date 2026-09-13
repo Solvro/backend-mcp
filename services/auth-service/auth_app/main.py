@@ -16,7 +16,6 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    settings = get_settings
     alg = settings.jwt_algorithm
 
     if alg.startswith(("RS", "ES", "EdDSA")):
@@ -25,14 +24,14 @@ async def lifespan(app: FastAPI):
                 "CRITICAL: Assymetric JWT algorithm specified, "
                 "but private or public key is missing in environment settings!"
             )
-        elif alg.startswith("HS"):
-            if not settings.jwt_secret_key:
-                raise RuntimeError(
-                    "CRITICAL: Symmetric JWT algorithm specified, "
-                    "but secret key is missing in environment settings!"
-                )
+    elif alg.startswith("HS"):
+        if not settings.jwt_secret_key:
+            raise RuntimeError(
+                "CRITICAL: Symmetric JWT algorithm specified, "
+                "but secret key is missing in environment settings!"
+            )
 
-        yield
+    yield
 
 
 setup_logging(service_name="auth-service", log_level=settings.log_level)

@@ -1,17 +1,18 @@
 from datetime import datetime, timezone
 
-from auth_app.models import Role, User
+from auth_app.models import RefreshToken, Role, User
 from auth_app.schemas import (
     LoginSchema,
     RegisterSchema,
     ResendVerificationEmailSchema,
     UserResponseSchema,
 )
-from auth_app.security import create_access_token, get_password_manager
+from auth_app.security import create_access_token, create_refresh_token, get_password_manager
 from auth_app.settings import get_settings
 from auth_app.verification import (
     consume_token,
     create_and_store_token,
+    hash_token,
     is_on_cooldown,
 )
 from common.db import get_session
@@ -23,6 +24,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -90,7 +92,7 @@ async def register(
     try:
         hashed_password = pm.hash_password(data.password)
     except ValueError as err:
-        raise HTTPException(status_code=400, detail=str(err))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err))
 
     stmt_role = select(Role).where(Role.name == "user")
     role_result = await db.execute(stmt_role)
@@ -130,13 +132,17 @@ async def register(
 
 @router.post("/login", dependencies=[Depends(login_limiter)])
 async def login(data: LoginSchema, db: AsyncSession = Depends(get_session)):
-    stmt = select(User).where(User.email == data.email)
+    pm = get_password_manager()
+
+    stmt = select(User).options(selectinload(User.roles)).where(User.email == data.email)
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
 
-    pm = get_password_manager()
-    if not user or not pm.verify_password(data.password, user.password_hash):
-        raise HTTPException(status_code=400, detail="invalid_credentials")
+    target_hash = user.password_hash if user else pm.DUMMY_HASH
+    is_password_correct = pm.verify_password(data.password, target_hash)
+
+    if not user or not is_password_correct:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid_credentials")
 
     if not user.email_verified:
         raise HTTPException(
@@ -146,10 +152,22 @@ async def login(data: LoginSchema, db: AsyncSession = Depends(get_session)):
 
     if pm.needs_rehash(user.password_hash):
         user.password_hash = pm.hash_password(data.password)
-        await db.commit()
 
-    access_token = create_access_token(user.id)
-    return {"access_token": access_token, "token_type": "bearer"}
+    access_token = create_access_token(user)
+    refresh_token, refresh_jti, expires_at = create_refresh_token(user)
+
+    hashed_refresh_token = hash_token(refresh_token)
+    db_refresh_token = RefreshToken(
+        jti=refresh_jti,
+        user_id=user.id,
+        token_hash=hashed_refresh_token,
+        expires_at=expires_at,
+    )
+    db.add(db_refresh_token)
+
+    await db.commit()
+
+    return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer"}
 
 
 @router.get("/verify")
@@ -160,14 +178,18 @@ async def verify_email(
 ):
     user_id = await consume_token(redis, token)
     if not user_id:
-        raise HTTPException(status_code=400, detail="invalid_or_expired_token")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_or_expired_token"
+        )
 
     stmt = select(User).where(User.id == user_id)
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
 
     if not user:
-        raise HTTPException(status_code=400, detail="invalid_or_expired_token")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_or_expired_token"
+        )
 
     user.email_verified = True
     user.verified_at = datetime.now(timezone.utc)
@@ -200,6 +222,6 @@ async def resend_verification(
             verify_link = f"{settings.frontend_url.rstrip('/')}/auth/verify?token={raw_token}"
             background_tasks.add_task(
                 send_verification_email, user.email, user.username, verify_link
-                )
+            )
 
     return generic_response

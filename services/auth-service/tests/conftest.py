@@ -9,6 +9,8 @@ from auth_app.main import app
 from auth_app.settings import get_settings
 from common.db import Base, get_session
 from common.redis import redis_dependency
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -17,9 +19,31 @@ TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
 @pytest.fixture(autouse=True)
 def setup_test_settings(monkeypatch):
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+    )
+    pem_private = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode("utf-8")
+
+    pem_public = (
+        private_key.public_key()
+        .public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode("utf-8")
+    )
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
     monkeypatch.setenv("JWT_SECRET_KEY", "super-secret-test-key-1234567890123456")
-    monkeypatch.setenv("JWT_ALGORITHM", "HS256")
+    monkeypatch.setenv("JWT_PRIVATE_KEY", pem_private)
+    monkeypatch.setenv("JWT_PUBLIC_KEY", pem_public)
+    monkeypatch.setenv("JWT_ALGORITHM", "RS256")
+    monkeypatch.setenv("JWT_ISSUER", "auth-service")
+    monkeypatch.setenv("JWT_AUDIENCE", "auth-api")
     monkeypatch.setenv("RATE_LIMIT_ENABLED", "false")
 
     if hasattr(get_settings, "cache_clear"):

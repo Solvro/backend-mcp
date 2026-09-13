@@ -29,6 +29,15 @@ class CommonSettings(BaseSettings):
     jwt_secret_key: str = Field(
         default_factory=lambda: get_secrets_provider().get("JWT_SECRET_KEY", ""),
     )
+
+    jwt_private_key: str = Field(
+        default_factory=lambda: get_secrets_provider().get("JWT_PRIVATE_KEY", ""),
+    )
+
+    jwt_public_key: str = Field(
+        default_factory=lambda: get_secrets_provider().get("JWT_PUBLIC_KEY", ""),
+    )
+
     jwt_algorithm: str = "HS256"
     jwt_issuer: str = ""
     jwt_audience: str = ""

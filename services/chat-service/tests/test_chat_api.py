@@ -27,6 +27,8 @@ from chat_app.settings import ChatSettings
 from common import rate_limit as rate_limit_module
 from common.exceptions_handlers import register_exception_handlers
 from common.redis import QuotaResult
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from mongomock_motor import AsyncMongoMockClient
@@ -35,7 +37,22 @@ from pydantic_ai.models.test import TestModel
 
 pytestmark = pytest.mark.unit
 
-_SECRET = "test-secret-key-at-least-32-bytes-long"
+_rsa_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+_PRIVATE_PEM = _rsa_key.private_bytes(
+    encoding=serialization.Encoding.PEM,
+    format=serialization.PrivateFormat.PKCS8,
+    encryption_algorithm=serialization.NoEncryption(),
+).decode("utf-8")
+
+_PUBLIC_PEM = (
+    _rsa_key.public_key()
+    .public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    .decode("utf-8")
+)
 
 
 class FakeGateway:
@@ -116,7 +133,12 @@ def _make_client(
     cache: AnswerCache | None = None,
 ) -> tuple[TestClient, FakeGateway]:
     gateway = gateway or FakeGateway()
-    settings = ChatSettings(jwt_secret_key=_SECRET, rate_limit_enabled=False)
+    settings = ChatSettings(
+        jwt_algorithm="RS256",
+        jwt_public_key=_PUBLIC_PEM,
+        jwt_private_key=_PRIVATE_PEM,
+        rate_limit_enabled=False,
+    )
     app = FastAPI()
     register_exception_handlers(app)
     app.include_router(build_chat_router(settings))
@@ -129,7 +151,7 @@ def _make_client(
 
 
 def _auth(user_id: str) -> dict[str, str]:
-    token = jwt.encode({"sub": user_id}, _SECRET, algorithm="HS256")
+    token = jwt.encode({"sub": user_id}, _PRIVATE_PEM, algorithm="RS256")
     return {"Authorization": f"Bearer {token}"}
 
 

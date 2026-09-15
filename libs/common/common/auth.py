@@ -14,8 +14,18 @@ logger = logging.getLogger(__name__)
 
 AuthDependency = Callable[[Request], Awaitable[str | None]]
 
+ACCESS_TOKEN_TYP = "access"
+REFRESH_TOKEN_TYP = "refresh"
+
 
 def decode_access_token(token: str, settings: CommonSettings) -> dict:
+    claims = decode_token(token, settings)
+    if claims.get("typ") != ACCESS_TOKEN_TYP:
+        raise AuthError("Invalid or expired access token.")
+    return claims
+
+
+def decode_token(token: str, settings: CommonSettings) -> dict:
     kwargs: dict[str, Any] = {"leeway": settings.jwt_leeway_seconds}
     if settings.jwt_issuer:
         kwargs["issuer"] = settings.jwt_issuer

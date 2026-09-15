@@ -60,6 +60,7 @@ async def test_login_success(
     assert decoded_access["aud"] == settings.jwt_audience
     assert "exp" in decoded_access
     assert "jti" in decoded_access
+    assert decoded_access["typ"] == "access"
 
     refresh_token = data["refresh_token"]
     hashed_refresh_token = hash_token(refresh_token)
@@ -70,6 +71,7 @@ async def test_login_success(
 
     assert db_token is not None
     assert db_token.user_id == user.id
+    assert db_token.family_id == db_token.jti  # login starts a new rotation family
 
     decoded_refresh = jwt.decode(
         refresh_token,
@@ -85,6 +87,7 @@ async def test_login_success(
     assert decoded_refresh["aud"] == settings.jwt_audience
     assert "exp" in decoded_refresh
     assert "jti" in decoded_refresh
+    assert decoded_refresh["typ"] == "refresh"
     assert db_token.jti == decoded_refresh["jti"]
 
 

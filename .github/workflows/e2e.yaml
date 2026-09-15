@@ -37,6 +37,9 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-packages --dev
 
+      - name: Generate ephemeral JWT keypair
+        run: just e2e-keys
+
       - name: Bring up stack + httpbin
         run: docker compose -f docker/compose.e2e.yml up -d --build --wait
 

@@ -38,7 +38,9 @@ def repo() -> ConversationRepository:
 
 @pytest.fixture
 def client(repo: ConversationRepository) -> TestClient:
-    settings = ChatSettings(jwt_private_key=_PRIVATE_PEM, jwt_public_key=_PUBLIC_PEM)
+    settings = ChatSettings(
+        jwt_algorithm="RS256", jwt_private_key=_PRIVATE_PEM, jwt_public_key=_PUBLIC_PEM
+    )
     app = FastAPI()
     register_exception_handlers(app)
     app.include_router(build_sessions_router(settings))

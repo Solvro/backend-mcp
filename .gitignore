@@ -9,6 +9,9 @@ wheels/
 # Environment variables
 .env
 
+# Ephemeral e2e JWT keypair (just e2e-keys)
+docker/.e2e-keys/
+
 # Virtual environments
 .venv
 

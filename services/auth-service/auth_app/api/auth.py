@@ -1,8 +1,12 @@
+import time
 from datetime import datetime, timezone
 
 from auth_app.models import RefreshToken, Role, User
+from auth_app.refresh_tokens import revoke_family, store_refresh_token
 from auth_app.schemas import (
     LoginSchema,
+    LogoutSchema,
+    RefreshSchema,
     RegisterSchema,
     ResendVerificationEmailSchema,
     UserResponseSchema,
@@ -15,12 +19,13 @@ from auth_app.verification import (
     hash_token,
     is_on_cooldown,
 )
+from common.auth import REFRESH_TOKEN_TYP, decode_access_token, decode_token
 from common.db import get_session
 from common.email import get_email_sender, send_template_email
-from common.errors import EmailSendError, NonRetriableError
+from common.errors import AuthError, EmailSendError, NonRetriableError
 from common.rate_limit import rate_limit
-from common.redis import redis_dependency
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from common.redis import redis_dependency, revoke_token
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,6 +55,23 @@ resend_limiter = rate_limit(
     limit=settings.rate_limit_resend,
     window_seconds=settings.rate_limit_window_seconds,
 )
+
+refresh_limiter = rate_limit(
+    "auth:refresh",
+    settings=settings,
+    limit=settings.rate_limit_refresh,
+    window_seconds=settings.rate_limit_window_seconds,
+)
+
+
+def bearer_claims(request: Request) -> dict:
+    scheme, _, token = request.headers.get("authorization", "").partition(" ")
+    if scheme.lower() != "bearer" or not token.strip():
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="authentication_required")
+    try:
+        return decode_access_token(token.strip(), get_settings())
+    except AuthError:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid_access_token")
 
 
 async def send_verification_email(email: str, username: str, link: str) -> None:
@@ -155,16 +177,55 @@ async def login(data: LoginSchema, db: AsyncSession = Depends(get_session)):
 
     access_token = create_access_token(user)
     refresh_token, refresh_jti, expires_at = create_refresh_token(user)
+    store_refresh_token(
+        db, raw_token=refresh_token, jti=refresh_jti, user_id=user.id, expires_at=expires_at
+    )
+    await db.commit()
 
-    hashed_refresh_token = hash_token(refresh_token)
-    db_refresh_token = RefreshToken(
+    return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer"}
+
+
+@router.post("/refresh", dependencies=[Depends(refresh_limiter)])
+async def refresh(data: RefreshSchema, db: AsyncSession = Depends(get_session)):
+    """Rotate a refresh token: revoke the presented one, issue a new access + refresh pair."""
+    invalid = HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid_refresh_token")
+
+    try:
+        claims = decode_token(data.refresh_token, get_settings())
+    except AuthError:
+        raise invalid
+    if claims.get("typ") != REFRESH_TOKEN_TYP:
+        raise invalid
+
+    stmt = (
+        select(RefreshToken)
+        .options(selectinload(RefreshToken.user).selectinload(User.roles))
+        .where(RefreshToken.jti == claims.get("jti"))
+    )
+    row = (await db.execute(stmt)).scalar_one_or_none()
+    if row is None or row.token_hash != hash_token(data.refresh_token):
+        raise invalid
+
+    if row.revoked:
+        await revoke_family(db, row.family_id)
+        await db.commit()
+        raise invalid
+
+    user = row.user
+    if not user.is_active:
+        raise invalid
+
+    row.revoked = True
+    access_token = create_access_token(user)
+    refresh_token, refresh_jti, expires_at = create_refresh_token(user)
+    store_refresh_token(
+        db,
+        raw_token=refresh_token,
         jti=refresh_jti,
         user_id=user.id,
-        token_hash=hashed_refresh_token,
         expires_at=expires_at,
+        family_id=row.family_id,
     )
-    db.add(db_refresh_token)
-
     await db.commit()
 
     return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer"}
@@ -225,3 +286,39 @@ async def resend_verification(
             )
 
     return generic_response
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(
+    data: LogoutSchema,
+    claims: dict = Depends(bearer_claims),
+    db: AsyncSession = Depends(get_session),
+) -> Response:
+    """Denylist the access token until it would expire anyway; revoke the refresh family."""
+    settings = get_settings()
+
+    ttl = int(claims["exp"]) + settings.jwt_leeway_seconds - int(time.time())
+    if claims.get("jti") and ttl > 0:
+        await revoke_token(str(claims["jti"]), ttl_seconds=ttl, settings=settings)
+
+    if data.refresh_token:
+        await _revoke_own_refresh_family(db, data.refresh_token, owner_id=claims["sub"])
+        await db.commit()
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+async def _revoke_own_refresh_family(db: AsyncSession, raw_token: str, *, owner_id: str) -> None:
+    try:
+        claims = decode_token(raw_token, get_settings())
+    except AuthError:
+        return
+    if claims.get("typ") != REFRESH_TOKEN_TYP:
+        return
+
+    stmt = select(RefreshToken).where(RefreshToken.jti == claims.get("jti"))
+    row = (await db.execute(stmt)).scalar_one_or_none()
+    if row is None or row.token_hash != hash_token(raw_token) or str(row.user_id) != owner_id:
+        return
+
+    await revoke_family(db, row.family_id)

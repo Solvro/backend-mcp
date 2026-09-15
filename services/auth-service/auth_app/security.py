@@ -8,6 +8,7 @@ from typing import Final
 import jwt
 from argon2 import PasswordHasher, Type
 from argon2.exceptions import InvalidHashError, VerificationError
+from common.auth import ACCESS_TOKEN_TYP, REFRESH_TOKEN_TYP
 
 from auth_app.models import User
 from auth_app.settings import AuthSettings, get_settings
@@ -35,6 +36,7 @@ def create_access_token(user: User, expires_delta: timedelta | None = None) -> s
         "jti": str(uuid.uuid4()),
         "iss": settings.jwt_issuer,
         "aud": settings.jwt_audience,
+        "typ": ACCESS_TOKEN_TYP,
     }
 
     return jwt.encode(payload, settings.jwt_private_key, algorithm=settings.jwt_algorithm)
@@ -58,6 +60,7 @@ def create_refresh_token(user: User) -> tuple[str, str, datetime]:
         "jti": jti,
         "iss": settings.jwt_issuer,
         "aud": settings.jwt_audience,
+        "typ": REFRESH_TOKEN_TYP,
     }
 
     token = jwt.encode(payload, settings.jwt_private_key, algorithm=settings.jwt_algorithm)

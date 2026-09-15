@@ -49,7 +49,7 @@ def client(repo: ConversationRepository) -> TestClient:
 
 
 def _auth(user_id: str) -> dict[str, str]:
-    token = jwt.encode({"sub": user_id}, _PRIVATE_PEM, algorithm="RS256")
+    token = jwt.encode({"sub": user_id, "typ": "access"}, _PRIVATE_PEM, algorithm="RS256")
     return {"Authorization": f"Bearer {token}"}
 
 

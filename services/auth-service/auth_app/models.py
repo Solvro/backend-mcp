@@ -82,6 +82,7 @@ class RefreshToken(Base):
     )
     token_hash: Mapped[str] = mapped_column(String(512), nullable=False)
     jti: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    family_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     revoked: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
     created_at: Mapped[datetime] = mapped_column(

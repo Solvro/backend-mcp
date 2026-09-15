@@ -40,6 +40,7 @@ def test_auth_models_can_be_created_and_persisted() -> None:
             user=user,
             token_hash="token-hash",
             jti="jti-123",
+            family_id="jti-123",
             expires_at=now + timedelta(hours=1),
             revoked=False,
         )

@@ -18,6 +18,7 @@ class AuthSettings(CommonSettings):
     rate_limit_register: int = 5
     rate_limit_login: int = 10
     rate_limit_resend: int = 3
+    rate_limit_refresh: int = 30
     rate_limit_window_seconds: int = 60
 
     verification_token_ttl_minutes: int = 120

@@ -42,7 +42,7 @@ def _settings(**overrides) -> CommonSettings:
 
 
 def _token(claims: dict, *, key: str = _PRIVATE_PEM, algorithm: str = "RS256") -> str:
-    return jwt.encode(claims, key, algorithm=algorithm)
+    return jwt.encode({"typ": "access", **claims}, key, algorithm=algorithm)
 
 
 def _request(headers: dict[str, str] | None = None) -> Request:
@@ -100,6 +100,18 @@ def test_decode_wrong_signature_raises() -> None:
 
     with pytest.raises(AuthError):
         decode_access_token(forged, _settings())
+
+
+def test_decode_rejects_refresh_token_as_bearer() -> None:
+    refresh = _token({"sub": "u1", "typ": "refresh"})
+    with pytest.raises(AuthError):
+        decode_access_token(refresh, _settings())
+
+
+def test_decode_rejects_token_without_typ() -> None:
+    untyped = jwt.encode({"sub": "u1"}, _PRIVATE_PEM, algorithm="RS256")
+    with pytest.raises(AuthError):
+        decode_access_token(untyped, _settings())
 
 
 async def test_optional_auth_without_header_is_anonymous() -> None:

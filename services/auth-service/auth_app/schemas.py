@@ -31,3 +31,11 @@ class UserResponseSchema(BaseModel):
         if isinstance(v, list):
             return [r.name if hasattr(r, "name") else r for r in v]
         return v
+
+
+class RefreshSchema(BaseModel):
+    refresh_token: str
+
+
+class LogoutSchema(BaseModel):
+    refresh_token: str | None = None

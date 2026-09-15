@@ -20,10 +20,16 @@ test:
 test-e2e:
     uv run pytest -m e2e
 
-e2e:
+e2e: e2e-keys
     docker compose -f docker/compose.e2e.yml up -d --build --wait
     -uv run pytest -m e2e
     docker compose -f docker/compose.e2e.yml down -v
+
+e2e-keys:
+    mkdir -p docker/.e2e-keys
+    openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out docker/.e2e-keys/jwt_private.pem 2>/dev/null
+    openssl pkey -in docker/.e2e-keys/jwt_private.pem -pubout -out docker/.e2e-keys/jwt_public.pem
+    chmod 644 docker/.e2e-keys/*.pem
 
 migrate:
     DATABASE_URL="${DATABASE_URL:-postgresql+asyncpg://postgres:postgres@localhost:5432/mcp_backend}" \

@@ -11,21 +11,38 @@ from common.auth import (
 from common.context import roles_var, user_id_var
 from common.errors import AuthError, ForbiddenError
 from common.settings import CommonSettings
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from starlette.requests import Request
 
 pytestmark = pytest.mark.unit
 
-_SECRET = "test-secret-key-at-least-32-bytes-long"
+_rsa_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+_PRIVATE_PEM = _rsa_key.private_bytes(
+    encoding=serialization.Encoding.PEM,
+    format=serialization.PrivateFormat.PKCS8,
+    encryption_algorithm=serialization.NoEncryption(),
+).decode("utf-8")
+
+_PUBLIC_PEM = (
+    _rsa_key.public_key()
+    .public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    .decode("utf-8")
+)
 
 
 def _settings(**overrides) -> CommonSettings:
-    base = dict(jwt_secret_key=_SECRET, jwt_algorithm="HS256")
+    base = dict(jwt_private_key=_PRIVATE_PEM, jwt_public_key=_PUBLIC_PEM, jwt_algorithm="RS256")
     base.update(overrides)
     return CommonSettings(**base)
 
 
-def _token(claims: dict, *, secret: str = _SECRET, algorithm: str = "HS256") -> str:
-    return jwt.encode(claims, secret, algorithm=algorithm)
+def _token(claims: dict, *, key: str = _PRIVATE_PEM, algorithm: str = "RS256") -> str:
+    return jwt.encode(claims, key, algorithm=algorithm)
 
 
 def _request(headers: dict[str, str] | None = None) -> Request:
@@ -71,8 +88,16 @@ def test_decode_expired_token_raises() -> None:
         decode_access_token(expired, _settings())
 
 
-def test_decode_wrong_secret_raises() -> None:
-    forged = _token({"sub": "u1"}, secret="a-different-secret-key-32-bytes-long!!")
+def test_decode_wrong_signature_raises() -> None:
+    other_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    other_private_pem = other_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode("utf-8")
+
+    forged = _token({"sub": "u1"}, key=other_private_pem, algorithm="RS256")
+
     with pytest.raises(AuthError):
         decode_access_token(forged, _settings())
 

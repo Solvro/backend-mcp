@@ -7,6 +7,7 @@ class AuthSettings(CommonSettings):
     app_name: str = "auth-service"
 
     access_token_expire_minutes: int = 30
+    refresh_token_expire_days: int = 7
 
     argon2_time_cost: int = 3
     argon2_memory_cost: int = 64 * 1024

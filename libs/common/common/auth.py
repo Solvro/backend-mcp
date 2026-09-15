@@ -21,15 +21,30 @@ def decode_access_token(token: str, settings: CommonSettings) -> dict:
         kwargs["issuer"] = settings.jwt_issuer
     if settings.jwt_audience:
         kwargs["audience"] = settings.jwt_audience
+
+    key = _get_verification_key(settings)
+
     try:
         return jwt.decode(
             token,
-            settings.jwt_secret_key,
+            key,
             algorithms=[settings.jwt_algorithm],
             **kwargs,
         )
     except jwt.PyJWTError as exc:
         raise AuthError("Invalid or expired access token.") from exc
+
+
+def _get_verification_key(settings: CommonSettings) -> str:
+    algorithm = settings.jwt_algorithm
+
+    if algorithm.startswith(("RS", "ES", "EdDSA")):
+        return settings.jwt_public_key
+
+    if algorithm.startswith("HS"):
+        return settings.jwt_secret_key
+
+    raise ValueError(f"Unsupported JWT algorithm: {algorithm}.")
 
 
 def _extract_bearer(request: Request) -> str | None:

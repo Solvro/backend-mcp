@@ -4,13 +4,30 @@ from chat_app.api.sessions import build_sessions_router, get_repository
 from chat_app.sessionizer import ConversationRepository, MessageRole
 from chat_app.settings import ChatSettings
 from common.exceptions_handlers import register_exception_handlers
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from mongomock_motor import AsyncMongoMockClient
 
 pytestmark = pytest.mark.unit
 
-_SECRET = "test-secret-key-at-least-32-bytes-long"
+_rsa_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+_PRIVATE_PEM = _rsa_key.private_bytes(
+    encoding=serialization.Encoding.PEM,
+    format=serialization.PrivateFormat.PKCS8,
+    encryption_algorithm=serialization.NoEncryption(),
+).decode("utf-8")
+
+_PUBLIC_PEM = (
+    _rsa_key.public_key()
+    .public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    .decode("utf-8")
+)
 
 
 @pytest.fixture
@@ -21,7 +38,9 @@ def repo() -> ConversationRepository:
 
 @pytest.fixture
 def client(repo: ConversationRepository) -> TestClient:
-    settings = ChatSettings(jwt_secret_key=_SECRET)
+    settings = ChatSettings(
+        jwt_algorithm="RS256", jwt_private_key=_PRIVATE_PEM, jwt_public_key=_PUBLIC_PEM
+    )
     app = FastAPI()
     register_exception_handlers(app)
     app.include_router(build_sessions_router(settings))
@@ -30,7 +49,7 @@ def client(repo: ConversationRepository) -> TestClient:
 
 
 def _auth(user_id: str) -> dict[str, str]:
-    token = jwt.encode({"sub": user_id}, _SECRET, algorithm="HS256")
+    token = jwt.encode({"sub": user_id}, _PRIVATE_PEM, algorithm="RS256")
     return {"Authorization": f"Bearer {token}"}
 
 

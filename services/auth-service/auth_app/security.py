@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Final
@@ -8,12 +9,13 @@ import jwt
 from argon2 import PasswordHasher, Type
 from argon2.exceptions import InvalidHashError, VerificationError
 
+from auth_app.models import User
 from auth_app.settings import AuthSettings, get_settings
 
 _DEFAULT_ARGON2_TYPE: Final[Type] = Type.ID
 
 
-def create_access_token(user_id: int | str, expires_delta: timedelta | None = None) -> str:
+def create_access_token(user: User, expires_delta: timedelta | None = None) -> str:
     """Generates JWT access token for the user."""
     settings = get_settings()
 
@@ -23,14 +25,44 @@ def create_access_token(user_id: int | str, expires_delta: timedelta | None = No
         expire_minutes = getattr(settings, "access_token_expire_minutes", 30)
         expire = datetime.now(timezone.utc) + timedelta(minutes=expire_minutes)
 
+    role_names = [role.name for role in user.roles] if user.roles else []
+
     payload = {
-        "sub": str(user_id),
+        "sub": str(user.id),
+        "roles": role_names,
+        "email_verified": user.email_verified,
         "exp": expire,
-        "iat": datetime.now(timezone.utc),
+        "jti": str(uuid.uuid4()),
+        "iss": settings.jwt_issuer,
+        "aud": settings.jwt_audience,
     }
 
-    algorithm = getattr(settings, "jwt_algorithm", "HS256")
-    return jwt.encode(payload, settings.jwt_secret_key, algorithm=algorithm)
+    return jwt.encode(payload, settings.jwt_private_key, algorithm=settings.jwt_algorithm)
+
+
+def create_refresh_token(user: User) -> tuple[str, str, datetime]:
+    """Generates a long-lived JWT refresh token, returns (token, jti, expires_at)."""
+    settings = get_settings()
+    jti = str(uuid.uuid4())
+
+    expire_days = getattr(settings, "refresh_token_expire_days", 7)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=expire_days)
+
+    role_names = [role.name for role in user.roles] if user.roles else []
+
+    payload = {
+        "sub": str(user.id),
+        "roles": role_names,
+        "email_verified": user.email_verified,
+        "exp": expires_at,
+        "jti": jti,
+        "iss": settings.jwt_issuer,
+        "aud": settings.jwt_audience,
+    }
+
+    token = jwt.encode(payload, settings.jwt_private_key, algorithm=settings.jwt_algorithm)
+
+    return token, jti, expires_at
 
 
 class PasswordManager:
@@ -46,6 +78,8 @@ class PasswordManager:
             salt_len=self._settings.argon2_salt_len,
             type=_DEFAULT_ARGON2_TYPE,
         )
+
+        self.DUMMY_HASH = self._hasher.hash("dummy_password123")
 
     def hash_password(self, password: str) -> str:
         if not password:

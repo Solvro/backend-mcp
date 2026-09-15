@@ -5,6 +5,12 @@ services:
     build:
       context: ..
       dockerfile: services/auth-service/Dockerfile
+    environment:
+      JWT_ALGORITHM: RS256
+      JWT_PRIVATE_KEY_FILE: /run/e2e-keys/jwt_private.pem
+      JWT_PUBLIC_KEY_FILE: /run/e2e-keys/jwt_public.pem
+    volumes:
+      - ./.e2e-keys:/run/e2e-keys:ro
     ports:
       - "18000:8000"
     depends_on:

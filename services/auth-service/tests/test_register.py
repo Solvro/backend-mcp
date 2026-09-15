@@ -111,3 +111,23 @@ async def test_register_email_send_failure_does_not_fail_registration(
     }
     response = await async_client.post("/auth/register", json=payload)
     assert response.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_register_does_not_invent_roles_when_seed_is_missing(
+    async_client, db_session
+) -> None:
+    from auth_app.models import Role
+    from sqlalchemy import delete, select
+
+    await db_session.execute(delete(Role))
+    await db_session.commit()
+
+    resp = await async_client.post(
+        "/auth/register",
+        json={"username": "nobody", "email": "nobody@example.com", "password": "Password123!"},
+    )
+
+    assert resp.status_code == 500
+    assert resp.json()["detail"] == "roles_not_seeded"
+    assert (await db_session.execute(select(Role))).scalars().all() == []

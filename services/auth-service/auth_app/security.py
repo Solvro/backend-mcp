@@ -9,6 +9,7 @@ import jwt
 from argon2 import PasswordHasher, Type
 from argon2.exceptions import InvalidHashError, VerificationError
 from common.auth import ACCESS_TOKEN_TYP, REFRESH_TOKEN_TYP
+from common.jwt_keys import is_asymmetric, signing_kid
 
 from auth_app.models import User
 from auth_app.settings import AuthSettings, get_settings
@@ -39,7 +40,7 @@ def create_access_token(user: User, expires_delta: timedelta | None = None) -> s
         "typ": ACCESS_TOKEN_TYP,
     }
 
-    return jwt.encode(payload, settings.jwt_private_key, algorithm=settings.jwt_algorithm)
+    return _sign(payload, settings)
 
 
 def create_refresh_token(user: User) -> tuple[str, str, datetime]:
@@ -63,9 +64,18 @@ def create_refresh_token(user: User) -> tuple[str, str, datetime]:
         "typ": REFRESH_TOKEN_TYP,
     }
 
-    token = jwt.encode(payload, settings.jwt_private_key, algorithm=settings.jwt_algorithm)
+    return _sign(payload, settings), jti, expires_at
 
-    return token, jti, expires_at
+
+def _sign(payload: dict, settings: AuthSettings) -> str:
+    if is_asymmetric(settings.jwt_algorithm):
+        return jwt.encode(
+            payload,
+            settings.jwt_private_key,
+            algorithm=settings.jwt_algorithm,
+            headers={"kid": signing_kid(settings)},
+        )
+    return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
 class PasswordManager:

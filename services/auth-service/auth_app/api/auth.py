@@ -1,7 +1,7 @@
 import time
 from datetime import datetime, timezone
 
-from auth_app.models import RefreshToken, Role, User
+from auth_app.models import USER_ROLE, RefreshToken, Role, User
 from auth_app.refresh_tokens import revoke_family, store_refresh_token
 from auth_app.schemas import (
     LoginSchema,
@@ -116,14 +116,11 @@ async def register(
     except ValueError as err:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err))
 
-    stmt_role = select(Role).where(Role.name == "user")
-    role_result = await db.execute(stmt_role)
-    user_role = role_result.scalar_one_or_none()
-
-    if not user_role:
-        user_role = Role(name="user", description="Default user role")
-        db.add(user_role)
-        await db.flush()
+    user_role = (await db.execute(select(Role).where(Role.name == USER_ROLE))).scalar_one_or_none()
+    if user_role is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="roles_not_seeded"
+        )
 
     user = User(
         username=data.username,

@@ -38,6 +38,10 @@ class CommonSettings(BaseSettings):
         default_factory=lambda: get_secrets_provider().get("JWT_PUBLIC_KEY", ""),
     )
 
+    jwt_previous_public_key: str = Field(
+        default_factory=lambda: get_secrets_provider().get("JWT_PREVIOUS_PUBLIC_KEY", ""),
+    )
+
     jwt_algorithm: str = "RS256"
     jwt_issuer: str = ""
     jwt_audience: str = ""

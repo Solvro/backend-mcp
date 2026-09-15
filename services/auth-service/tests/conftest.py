@@ -6,6 +6,7 @@ import pytest
 import pytest_asyncio
 from auth_app.api.auth import login_limiter, refresh_limiter, register_limiter, resend_limiter
 from auth_app.main import app
+from auth_app.models import DEFAULT_ROLES, Role
 from auth_app.settings import get_settings
 from common.db import Base, get_session
 from common.redis import redis_dependency
@@ -63,6 +64,8 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
 
     async_session = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
     async with async_session() as session:
+        session.add_all(Role(name=n, description=d) for n, d in DEFAULT_ROLES.items())
+        await session.commit()
         yield session
 
     async with engine.begin() as conn:

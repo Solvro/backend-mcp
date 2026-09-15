@@ -4,6 +4,13 @@ from common.db import Base
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, false, func, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+USER_ROLE = "user"
+ADMIN_ROLE = "admin"
+DEFAULT_ROLES: dict[str, str] = {
+    USER_ROLE: "Default role granted at registration",
+    ADMIN_ROLE: "Full administrative access",
+}
+
 
 class User(Base):
     __tablename__ = "users"

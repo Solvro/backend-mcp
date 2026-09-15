@@ -4,6 +4,7 @@ from auth_app.models import RefreshToken, Role, User
 from auth_app.security import get_password_manager
 from auth_app.settings import get_settings
 from auth_app.verification import hash_token
+from common.jwt_keys import key_id
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,8 +20,7 @@ async def test_login_success(
     raw_password = "SecretPassword123!"
     hashed_password = pm.hash_password(raw_password)
 
-    user_role = Role(name="user")
-    db_session.add(user_role)
+    user_role = (await db_session.execute(select(Role).where(Role.name == "user"))).scalar_one()
 
     user = User(
         username="verified_alice",
@@ -61,6 +61,7 @@ async def test_login_success(
     assert "exp" in decoded_access
     assert "jti" in decoded_access
     assert decoded_access["typ"] == "access"
+    assert jwt.get_unverified_header(access_token)["kid"] == key_id(settings.jwt_public_key)
 
     refresh_token = data["refresh_token"]
     hashed_refresh_token = hash_token(refresh_token)
@@ -88,6 +89,7 @@ async def test_login_success(
     assert "exp" in decoded_refresh
     assert "jti" in decoded_refresh
     assert decoded_refresh["typ"] == "refresh"
+    assert jwt.get_unverified_header(refresh_token)["kid"] == key_id(settings.jwt_public_key)
     assert db_token.jti == decoded_refresh["jti"]
 
 

@@ -1,3 +1,5 @@
+import time
+
 import jwt
 import pytest
 from auth_app.models import RefreshToken, Role, User
@@ -61,6 +63,8 @@ async def test_login_success(
     assert "exp" in decoded_access
     assert "jti" in decoded_access
     assert decoded_access["typ"] == "access"
+    assert abs(decoded_access["iat"] - time.time()) < 5
+    assert isinstance(decoded_access["iat"], float)  # sub-second, see revoke_user_tokens
     assert jwt.get_unverified_header(access_token)["kid"] == key_id(settings.jwt_public_key)
 
     refresh_token = data["refresh_token"]
@@ -89,6 +93,7 @@ async def test_login_success(
     assert "exp" in decoded_refresh
     assert "jti" in decoded_refresh
     assert decoded_refresh["typ"] == "refresh"
+    assert abs(decoded_refresh["iat"] - time.time()) < 5
     assert jwt.get_unverified_header(refresh_token)["kid"] == key_id(settings.jwt_public_key)
     assert db_token.jti == decoded_refresh["jti"]
 

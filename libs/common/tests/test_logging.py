@@ -10,6 +10,29 @@ from common.context import (
 )
 
 
+def _root_state() -> tuple[int, list[logging.Handler]]:
+    root = logging.getLogger()
+    ours = [h for h in root.handlers if not type(h).__module__.startswith("_pytest")]
+    return root.level, ours
+
+
+@pytest.fixture(scope="module", autouse=True)
+def root_state_before_module() -> tuple[int, list[logging.Handler]]:
+    return _root_state()
+
+
+@pytest.fixture(autouse=True)
+def _restore_root_logger(root_state_before_module):
+    root = logging.getLogger()
+    level, handlers = root.level, list(root.handlers)
+    yield
+    for handler in root.handlers:
+        if handler not in handlers:
+            handler.close()
+    root.handlers[:] = handlers
+    root.setLevel(level)
+
+
 @pytest.mark.unit
 def test_json_log_structure(capsys):
     setup_logging(service_name="test_service", log_level=logging.DEBUG)
@@ -51,3 +74,8 @@ def test_context_variables_in_log(capsys):
     assert log_record["user_id"] == "test_user_id"
     assert log_record["session_id"] == "test_session_id"
     assert log_record["trace_id"] == "test_trace_id"
+
+
+@pytest.mark.unit
+def test_setup_logging_tests_do_not_leak_root_logger_state(root_state_before_module):
+    assert _root_state() == root_state_before_module

@@ -4,7 +4,14 @@ from unittest.mock import AsyncMock, patch
 import fakeredis.aioredis
 import pytest
 import pytest_asyncio
-from auth_app.api.auth import login_limiter, refresh_limiter, register_limiter, resend_limiter
+from auth_app.api.auth import (
+    forgot_password_limiter,
+    login_limiter,
+    refresh_limiter,
+    register_limiter,
+    resend_limiter,
+    reset_password_limiter,
+)
 from auth_app.main import app
 from auth_app.models import DEFAULT_ROLES, Role
 from auth_app.settings import get_settings
@@ -94,6 +101,8 @@ async def async_client(
     app.dependency_overrides[login_limiter] = no_rate_limit
     app.dependency_overrides[resend_limiter] = no_rate_limit
     app.dependency_overrides[refresh_limiter] = no_rate_limit
+    app.dependency_overrides[forgot_password_limiter] = no_rate_limit
+    app.dependency_overrides[reset_password_limiter] = no_rate_limit
 
     with patch("common.redis.get_redis", return_value=redis_client):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:

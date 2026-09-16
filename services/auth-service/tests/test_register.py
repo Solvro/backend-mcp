@@ -30,6 +30,12 @@ async def test_register_user_success(
     mock_send_template_email.assert_called_once()
     assert mock_send_template_email.call_args.kwargs["to"] == ["alice1@example.com"]
 
+    from common.email import render_template
+
+    call = mock_send_template_email.call_args.kwargs
+    plain, _ = render_template(call["template_name"], call["context"])
+    assert "/auth/verify?token=" in plain
+
     res_data = response.json()
     assert "id" in res_data
     assert res_data["username"] == "alice1"

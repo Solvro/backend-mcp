@@ -1,3 +1,5 @@
+import time
+
 import pytest
 from common import redis as redis_module
 from common.redis import (
@@ -9,6 +11,8 @@ from common.redis import (
     make_key,
     rate_limit_key,
     revoke_token,
+    revoke_user_tokens,
+    user_tokens_revoked_at,
 )
 from common.settings import CommonSettings
 
@@ -24,6 +28,9 @@ class _FakeRedis:
 
     async def exists(self, key: str) -> int:
         return 1 if key in self.store else 0
+
+    async def get(self, key: str) -> str | None:
+        return self.store[key][0] if key in self.store else None
 
 
 @pytest.mark.unit
@@ -83,6 +90,25 @@ async def test_revoke_token_defaults_ttl_to_denylist(monkeypatch):
 
     _, stored_ttl = fake.store[denylist_key("jti-2", settings=SETTINGS)]
     assert stored_ttl == int(TTL.DENYLIST)
+
+
+@pytest.mark.unit
+async def test_revoke_user_tokens_records_a_watermark_with_ttl(monkeypatch):
+    fake = _FakeRedis()
+    monkeypatch.setattr(redis_module, "get_redis", lambda s=None: fake)
+
+    assert await user_tokens_revoked_at("42", settings=SETTINGS) is None
+
+    before = time.time()
+    await revoke_user_tokens("42", ttl_seconds=1830, settings=SETTINGS)
+
+    stored_value, stored_ttl = fake.store["mcp:denylist:user:42"]
+    assert stored_ttl == 1830
+    watermark = await user_tokens_revoked_at("42", settings=SETTINGS)
+    assert watermark is not None
+    assert before - 1 <= watermark <= time.time() + 1
+    assert float(stored_value) == watermark
+    assert isinstance(watermark, float)
 
 
 @pytest.mark.unit

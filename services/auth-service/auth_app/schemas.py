@@ -1,10 +1,12 @@
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
+PASSWORD_FIELD = Field(..., min_length=6)
+
 
 class RegisterSchema(BaseModel):
     username: str = Field(..., min_length=3, max_length=255)
     email: EmailStr
-    password: str = Field(..., min_length=6)
+    password: str = PASSWORD_FIELD
 
 
 class LoginSchema(BaseModel):
@@ -39,3 +41,12 @@ class RefreshSchema(BaseModel):
 
 class LogoutSchema(BaseModel):
     refresh_token: str | None = None
+
+
+class ForgotPasswordSchema(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordSchema(BaseModel):
+    token: str
+    new_password: str = PASSWORD_FIELD

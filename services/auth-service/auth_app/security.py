@@ -21,11 +21,12 @@ def create_access_token(user: User, expires_delta: timedelta | None = None) -> s
     """Generates JWT access token for the user."""
     settings = get_settings()
 
+    now = datetime.now(timezone.utc)
     if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
+        expire = now + expires_delta
     else:
         expire_minutes = getattr(settings, "access_token_expire_minutes", 30)
-        expire = datetime.now(timezone.utc) + timedelta(minutes=expire_minutes)
+        expire = now + timedelta(minutes=expire_minutes)
 
     role_names = [role.name for role in user.roles] if user.roles else []
 
@@ -33,6 +34,7 @@ def create_access_token(user: User, expires_delta: timedelta | None = None) -> s
         "sub": str(user.id),
         "roles": role_names,
         "email_verified": user.email_verified,
+        "iat": now.timestamp(),
         "exp": expire,
         "jti": str(uuid.uuid4()),
         "iss": settings.jwt_issuer,
@@ -48,8 +50,9 @@ def create_refresh_token(user: User) -> tuple[str, str, datetime]:
     settings = get_settings()
     jti = str(uuid.uuid4())
 
+    now = datetime.now(timezone.utc)
     expire_days = getattr(settings, "refresh_token_expire_days", 7)
-    expires_at = datetime.now(timezone.utc) + timedelta(days=expire_days)
+    expires_at = now + timedelta(days=expire_days)
 
     role_names = [role.name for role in user.roles] if user.roles else []
 
@@ -57,6 +60,7 @@ def create_refresh_token(user: User) -> tuple[str, str, datetime]:
         "sub": str(user.id),
         "roles": role_names,
         "email_verified": user.email_verified,
+        "iat": now.timestamp(),
         "exp": expires_at,
         "jti": jti,
         "iss": settings.jwt_issuer,

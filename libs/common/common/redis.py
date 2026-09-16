@@ -139,6 +139,27 @@ async def is_token_denylisted(jti: str, *, settings: CommonSettings | None = Non
     return await redis.exists(denylist_key(jti, settings=settings)) > 0
 
 
+def user_denylist_key(user_id: str, *, settings: CommonSettings | None = None) -> str:
+    return make_key(Namespace.DENYLIST, "user", user_id, settings=settings)
+
+
+async def revoke_user_tokens(
+    user_id: str, *, ttl_seconds: int, settings: CommonSettings | None = None
+) -> None:
+    redis = get_redis(settings)
+    await redis.set(
+        user_denylist_key(user_id, settings=settings), repr(time.time()), ex=ttl_seconds
+    )
+
+
+async def user_tokens_revoked_at(
+    user_id: str, *, settings: CommonSettings | None = None
+) -> float | None:
+    redis = get_redis(settings)
+    raw = await redis.get(user_denylist_key(user_id, settings=settings))
+    return float(raw) if raw else None
+
+
 def cache_key(digest: str, *, settings: CommonSettings | None = None) -> str:
     return make_key(Namespace.CACHE, digest, settings=settings)
 

@@ -8,7 +8,7 @@ from fastapi import Request
 from common.context import roles_var, user_id_var
 from common.errors import AuthError, ForbiddenError
 from common.jwt_keys import is_asymmetric, signing_kid, verification_keys
-from common.redis import is_token_denylisted
+from common.redis import is_token_denylisted, user_tokens_revoked_at
 from common.settings import CommonSettings
 
 logger = logging.getLogger(__name__)
@@ -90,6 +90,17 @@ async def _is_denylisted(jti: str, settings: CommonSettings) -> bool:
         return False
 
 
+async def _user_revoked_at(user_id: str, settings: CommonSettings) -> float | None:
+    try:
+        return await user_tokens_revoked_at(user_id, settings=settings)
+    except Exception:  # noqa: BLE001 - revocation check degrades gracefully
+        logger.warning(
+            "User revocation lookup failed; accepting token without revocation check",
+            exc_info=True,
+        )
+        return None
+
+
 async def _resolve_identity(token: str, settings: CommonSettings) -> str:
     claims = decode_access_token(token, settings)
     user_id = claims.get("sub")
@@ -98,6 +109,10 @@ async def _resolve_identity(token: str, settings: CommonSettings) -> str:
 
     jti = claims.get("jti")
     if jti and await _is_denylisted(str(jti), settings):
+        raise AuthError("Access token has been revoked.")
+
+    revoked_at = await _user_revoked_at(str(user_id), settings)
+    if revoked_at is not None and claims.get("iat", 0) < revoked_at:
         raise AuthError("Access token has been revoked.")
 
     user_id_var.set(str(user_id))

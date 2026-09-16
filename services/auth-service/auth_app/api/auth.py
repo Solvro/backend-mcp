@@ -2,18 +2,21 @@ import time
 from datetime import datetime, timezone
 
 from auth_app.models import USER_ROLE, RefreshToken, Role, User
-from auth_app.refresh_tokens import revoke_family, store_refresh_token
+from auth_app.refresh_tokens import revoke_all_for_user, revoke_family, store_refresh_token
 from auth_app.schemas import (
+    ForgotPasswordSchema,
     LoginSchema,
     LogoutSchema,
     RefreshSchema,
     RegisterSchema,
     ResendVerificationEmailSchema,
+    ResetPasswordSchema,
     UserResponseSchema,
 )
 from auth_app.security import create_access_token, create_refresh_token, get_password_manager
 from auth_app.settings import get_settings
 from auth_app.verification import (
+    TokenPurpose,
     consume_token,
     create_and_store_token,
     hash_token,
@@ -24,7 +27,7 @@ from common.db import get_session
 from common.email import get_email_sender, send_template_email
 from common.errors import AuthError, EmailSendError, NonRetriableError
 from common.rate_limit import rate_limit
-from common.redis import redis_dependency, revoke_token
+from common.redis import redis_dependency, revoke_token, revoke_user_tokens
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from redis.asyncio import Redis
 from sqlalchemy import select
@@ -63,6 +66,20 @@ refresh_limiter = rate_limit(
     window_seconds=settings.rate_limit_window_seconds,
 )
 
+forgot_password_limiter = rate_limit(
+    "auth:forgot-password",
+    settings=settings,
+    limit=settings.rate_limit_forgot_password,
+    window_seconds=settings.rate_limit_window_seconds,
+)
+
+reset_password_limiter = rate_limit(
+    "auth:reset-password",
+    settings=settings,
+    limit=settings.rate_limit_reset_password,
+    window_seconds=settings.rate_limit_window_seconds,
+)
+
 
 def bearer_claims(request: Request) -> dict:
     scheme, _, token = request.headers.get("authorization", "").partition(" ")
@@ -74,6 +91,19 @@ def bearer_claims(request: Request) -> dict:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid_access_token")
 
 
+async def send_password_reset_email(email: str, link: str, ttl_minutes: int) -> None:
+    try:
+        await send_template_email(
+            sender=get_email_sender(),
+            to=[email],
+            subject="Password reset",
+            template_name="password_reset",
+            context={"reset_url": link, "ttl_minutes": ttl_minutes},
+        )
+    except Exception:  # noqa: BLE001 - never surface delivery problems to the requester
+        pass
+
+
 async def send_verification_email(email: str, username: str, link: str) -> None:
     try:
         sender = get_email_sender()
@@ -82,7 +112,7 @@ async def send_verification_email(email: str, username: str, link: str) -> None:
             to=[email],
             subject="Account verification",
             template_name="verification",
-            context={"username": username, "verify_link": link},
+            context={"username": username, "verify_url": link},
         )
     except (EmailSendError, NonRetriableError):
         pass
@@ -319,3 +349,71 @@ async def _revoke_own_refresh_family(db: AsyncSession, raw_token: str, *, owner_
         return
 
     await revoke_family(db, row.family_id)
+
+
+@router.post("/forgot-password", dependencies=[Depends(forgot_password_limiter)])
+async def forgot_password(
+    data: ForgotPasswordSchema,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_session),
+    redis: Redis = Depends(redis_dependency),
+):
+    generic_response = {"message": "If the email is registered, a reset link has been sent."}
+    clean_email = data.email.lower().strip()
+
+    user = (await db.execute(select(User).where(User.email == clean_email))).scalar_one_or_none()
+    if user is None or not user.is_active:
+        return generic_response
+    if await is_on_cooldown(redis, clean_email, purpose=TokenPurpose.PASSWORD_RESET):
+        return generic_response
+
+    settings = get_settings()
+    raw_token = await create_and_store_token(redis, user.id, purpose=TokenPurpose.PASSWORD_RESET)
+    reset_url = f"{settings.frontend_url.rstrip('/')}/auth/reset-password?token={raw_token}"
+    background_tasks.add_task(
+        send_password_reset_email,
+        user.email,
+        reset_url,
+        settings.password_reset_token_ttl_minutes,
+    )
+    return generic_response
+
+
+@router.post("/reset-password", dependencies=[Depends(reset_password_limiter)])
+async def reset_password(
+    data: ResetPasswordSchema,
+    db: AsyncSession = Depends(get_session),
+    redis: Redis = Depends(redis_dependency),
+):
+    settings = get_settings()
+    pm = get_password_manager()
+    try:
+        new_hash = pm.hash_password(data.new_password)
+    except ValueError as err:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err))
+
+    user_id = await consume_token(redis, data.token, purpose=TokenPurpose.PASSWORD_RESET)
+    user = (
+        (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+        if user_id is not None
+        else None
+    )
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_or_expired_token"
+        )
+
+    user.password_hash = new_hash
+    if not user.email_verified:  # completing the reset proves control of the inbox
+        user.email_verified = True
+        user.verified_at = datetime.now(timezone.utc)
+    await revoke_all_for_user(db, user.id)
+    await db.commit()
+
+    await revoke_user_tokens(
+        str(user.id),
+        ttl_seconds=settings.access_token_expire_minutes * 60 + settings.jwt_leeway_seconds,
+        settings=settings,
+    )
+
+    return {"message": "Password has been reset."}

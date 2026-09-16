@@ -78,6 +78,17 @@ def _patch_denylist(monkeypatch, *, contains: bool = False, fail: bool = False) 
     monkeypatch.setattr(auth_module, "is_token_denylisted", fake)
 
 
+def _patch_user_watermark(monkeypatch, *, revoked_at: float | None, fail: bool = False) -> None:
+    from common import auth as auth_module
+
+    async def fake(user_id: str, *, settings=None) -> float | None:
+        if fail:
+            raise ConnectionError("redis down")
+        return revoked_at
+
+    monkeypatch.setattr(auth_module, "user_tokens_revoked_at", fake)
+
+
 def test_decode_valid_token_returns_claims() -> None:
     claims = decode_access_token(_token({"sub": "u1"}), _settings())
     assert claims["sub"] == "u1"
@@ -320,3 +331,41 @@ async def test_require_roles_requires_authentication() -> None:
 
     with pytest.raises(AuthError):
         await dep(_request())
+
+
+async def test_token_issued_before_user_watermark_is_rejected(monkeypatch) -> None:
+    _patch_denylist(monkeypatch)
+    _patch_user_watermark(monkeypatch, revoked_at=1_000_000.0)
+    dep = require_auth(settings=_settings())
+    headers = {"Authorization": f"Bearer {_token({'sub': 'u1', 'iat': 999_990})}"}
+
+    with pytest.raises(AuthError, match="revoked"):
+        await dep(_request(headers))
+
+
+async def test_token_issued_after_user_watermark_is_accepted(monkeypatch) -> None:
+    _patch_denylist(monkeypatch)
+    _patch_user_watermark(monkeypatch, revoked_at=1_000_000.0)
+    dep = require_auth(settings=_settings())
+    headers = {"Authorization": f"Bearer {_token({'sub': 'u1', 'iat': 1_000_000})}"}
+
+    assert await dep(_request(headers)) == "u1"
+
+
+async def test_token_without_iat_is_rejected_once_user_has_a_watermark(monkeypatch) -> None:
+    _patch_denylist(monkeypatch)
+    _patch_user_watermark(monkeypatch, revoked_at=1_000_000.0)
+    dep = require_auth(settings=_settings())
+    headers = {"Authorization": f"Bearer {_token({'sub': 'u1'})}"}
+
+    with pytest.raises(AuthError, match="revoked"):
+        await dep(_request(headers))
+
+
+async def test_watermark_lookup_failure_degrades_to_accepting(monkeypatch) -> None:
+    _patch_denylist(monkeypatch)
+    _patch_user_watermark(monkeypatch, revoked_at=None, fail=True)
+    dep = require_auth(settings=_settings())
+    headers = {"Authorization": f"Bearer {_token({'sub': 'u1', 'iat': 1})}"}
+
+    assert await dep(_request(headers)) == "u1"

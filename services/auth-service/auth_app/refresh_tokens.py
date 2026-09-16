@@ -32,3 +32,9 @@ async def revoke_family(db: AsyncSession, family_id: str) -> None:
     await db.execute(
         update(RefreshToken).where(RefreshToken.family_id == family_id).values(revoked=True)
     )
+
+
+async def revoke_all_for_user(db: AsyncSession, user_id: int) -> None:
+    await db.execute(
+        update(RefreshToken).where(RefreshToken.user_id == user_id).values(revoked=True)
+    )

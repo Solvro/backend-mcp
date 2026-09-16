@@ -19,10 +19,14 @@ class AuthSettings(CommonSettings):
     rate_limit_login: int = 10
     rate_limit_resend: int = 3
     rate_limit_refresh: int = 30
+    rate_limit_forgot_password: int = 3
+    rate_limit_reset_password: int = 10
     rate_limit_window_seconds: int = 60
 
     verification_token_ttl_minutes: int = 120
     verification_cooldown_minutes: int = 1
+    password_reset_token_ttl_minutes: int = 30
+    password_reset_cooldown_minutes: int = 1
 
     email_from: str = "noreply@example.com"
 

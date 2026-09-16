@@ -7,6 +7,7 @@ from fastapi import Request
 
 from common.context import roles_var, user_id_var
 from common.errors import AuthError, ForbiddenError
+from common.jwt_keys import is_asymmetric, signing_kid, verification_keys
 from common.redis import is_token_denylisted
 from common.settings import CommonSettings
 
@@ -32,9 +33,8 @@ def decode_token(token: str, settings: CommonSettings) -> dict:
     if settings.jwt_audience:
         kwargs["audience"] = settings.jwt_audience
 
-    key = _get_verification_key(settings)
-
     try:
+        key = _get_verification_key(token, settings)
         return jwt.decode(
             token,
             key,
@@ -45,11 +45,15 @@ def decode_token(token: str, settings: CommonSettings) -> dict:
         raise AuthError("Invalid or expired access token.") from exc
 
 
-def _get_verification_key(settings: CommonSettings) -> str:
+def _get_verification_key(token: str, settings: CommonSettings) -> str:
     algorithm = settings.jwt_algorithm
 
-    if algorithm.startswith(("RS", "ES", "EdDSA")):
-        return settings.jwt_public_key
+    if is_asymmetric(algorithm):
+        kid = jwt.get_unverified_header(token).get("kid") or signing_kid(settings)
+        try:
+            return verification_keys(settings)[kid]
+        except KeyError:
+            raise AuthError("Access token signed with an unknown key.")
 
     if algorithm.startswith("HS"):
         return settings.jwt_secret_key

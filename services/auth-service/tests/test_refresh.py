@@ -13,12 +13,13 @@ PASSWORD = "SecretPassword123!"
 async def _login(
     client: AsyncClient, db: AsyncSession, *, email: str = "alice@example.com"
 ) -> dict:
+    user_role = (await db.execute(select(Role).where(Role.name == "user"))).scalar_one()
     user = User(
         username=email.split("@")[0],
         email=email,
         password_hash=get_password_manager().hash_password(PASSWORD),
         email_verified=True,
-        roles=[Role(name="user")],
+        roles=[user_role],
     )
     db.add(user)
     await db.commit()
@@ -129,3 +130,42 @@ async def test_refresh_for_deactivated_user_is_rejected(async_client, db_session
     resp = await async_client.post("/auth/refresh", json={"refresh_token": tokens["refresh_token"]})
 
     assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_refresh_token_survives_key_rotation(async_client, db_session, monkeypatch) -> None:
+    import jwt
+    from common.jwt_keys import key_id
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    issued_under_a = await _login(async_client, db_session)
+    key_a_public = get_settings().jwt_public_key
+
+    key_b = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    monkeypatch.setenv(
+        "JWT_PRIVATE_KEY",
+        key_b.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        ).decode(),
+    )
+    key_b_public = (
+        key_b.public_key()
+        .public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+        .decode()
+    )
+    monkeypatch.setenv("JWT_PUBLIC_KEY", key_b_public)
+    monkeypatch.setenv("JWT_PREVIOUS_PUBLIC_KEY", key_a_public)
+    get_settings.cache_clear()
+
+    resp = await async_client.post(
+        "/auth/refresh", json={"refresh_token": issued_under_a["refresh_token"]}
+    )
+
+    assert resp.status_code == 200
+    new_access = resp.json()["access_token"]
+    assert jwt.get_unverified_header(new_access)["kid"] == key_id(key_b_public)
+    assert decode_access_token(new_access, get_settings())["sub"]
+    assert decode_access_token(issued_under_a["access_token"], get_settings())["sub"]

@@ -10,6 +10,7 @@ from common.auth import (
 )
 from common.context import roles_var, user_id_var
 from common.errors import AuthError, ForbiddenError
+from common.jwt_keys import key_id
 from common.settings import CommonSettings
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -100,6 +101,61 @@ def test_decode_wrong_signature_raises() -> None:
 
     with pytest.raises(AuthError):
         decode_access_token(forged, _settings())
+
+
+def _other_keypair() -> tuple[str, str]:
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    private = key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode("utf-8")
+    public = (
+        key.public_key()
+        .public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode("utf-8")
+    )
+    return private, public
+
+
+def test_decode_uses_kid_to_pick_the_retiring_key_during_rotation() -> None:
+    old_private, old_public = _other_keypair()
+    signed_by_old = jwt.encode(
+        {"sub": "u1", "typ": "access"},
+        old_private,
+        algorithm="RS256",
+        headers={"kid": key_id(old_public)},
+    )
+
+    # rotated: old key demoted to previous, current is the new pair
+    assert decode_access_token(signed_by_old, _settings(jwt_previous_public_key=old_public))
+    # and once the previous key is dropped, the token is dead
+    with pytest.raises(AuthError):
+        decode_access_token(signed_by_old, _settings())
+
+
+def test_decode_rejects_unknown_kid() -> None:
+    token = jwt.encode(
+        {"sub": "u1", "typ": "access"}, _PRIVATE_PEM, algorithm="RS256", headers={"kid": "nope"}
+    )
+    with pytest.raises(AuthError):
+        decode_access_token(token, _settings())
+
+
+def test_decode_accepts_legacy_token_without_kid_using_current_key() -> None:
+    legacy = jwt.encode({"sub": "u1", "typ": "access"}, _PRIVATE_PEM, algorithm="RS256")
+    assert "kid" not in jwt.get_unverified_header(legacy)
+    assert decode_access_token(legacy, _settings())["sub"] == "u1"
+
+
+def test_decode_hs256_still_uses_the_shared_secret() -> None:
+    secret = "s" * 32
+    token = jwt.encode({"sub": "u1", "typ": "access"}, secret, algorithm="HS256")
+    settings = CommonSettings(jwt_algorithm="HS256", jwt_secret_key=secret)
+    assert decode_access_token(token, settings)["sub"] == "u1"
 
 
 def test_decode_rejects_refresh_token_as_bearer() -> None:

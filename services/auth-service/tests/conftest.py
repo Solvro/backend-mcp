@@ -5,6 +5,7 @@ import fakeredis.aioredis
 import pytest
 import pytest_asyncio
 from auth_app.api.auth import (
+    change_password_limiter,
     forgot_password_limiter,
     login_limiter,
     refresh_limiter,
@@ -103,6 +104,7 @@ async def async_client(
     app.dependency_overrides[refresh_limiter] = no_rate_limit
     app.dependency_overrides[forgot_password_limiter] = no_rate_limit
     app.dependency_overrides[reset_password_limiter] = no_rate_limit
+    app.dependency_overrides[change_password_limiter] = no_rate_limit
 
     with patch("common.redis.get_redis", return_value=redis_client):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:

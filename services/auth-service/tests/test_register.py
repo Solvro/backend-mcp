@@ -7,6 +7,8 @@ from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.mark.asyncio
 @patch("auth_app.api.auth.send_template_email", new_callable=AsyncMock)

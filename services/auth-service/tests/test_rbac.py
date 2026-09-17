@@ -8,6 +8,8 @@ from fastapi import Depends, FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
+pytestmark = pytest.mark.unit
+
 PASSWORD = "SecretPassword123!"
 
 

@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from auth_app.models import USER_ROLE, RefreshToken, Role, User
 from auth_app.refresh_tokens import revoke_all_for_user, revoke_family, store_refresh_token
 from auth_app.schemas import (
+    ChangePasswordSchema,
     ForgotPasswordSchema,
     LoginSchema,
     LogoutSchema,
@@ -22,7 +23,7 @@ from auth_app.verification import (
     hash_token,
     is_on_cooldown,
 )
-from common.auth import REFRESH_TOKEN_TYP, decode_access_token, decode_token
+from common.auth import REFRESH_TOKEN_TYP, decode_access_token, decode_token, verify_access_token
 from common.db import get_session
 from common.email import get_email_sender, send_template_email
 from common.errors import AuthError, EmailSendError, NonRetriableError
@@ -80,13 +81,31 @@ reset_password_limiter = rate_limit(
     window_seconds=settings.rate_limit_window_seconds,
 )
 
+change_password_limiter = rate_limit(
+    "auth:change-password",
+    settings=settings,
+    limit=settings.rate_limit_change_password,
+    window_seconds=settings.rate_limit_window_seconds,
+)
 
-def bearer_claims(request: Request) -> dict:
+
+def _bearer_token(request: Request) -> str:
     scheme, _, token = request.headers.get("authorization", "").partition(" ")
     if scheme.lower() != "bearer" or not token.strip():
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="authentication_required")
+    return token.strip()
+
+
+def bearer_claims(request: Request) -> dict:
     try:
-        return decode_access_token(token.strip(), get_settings())
+        return decode_access_token(_bearer_token(request), get_settings())
+    except AuthError:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid_access_token")
+
+
+async def current_user_claims(request: Request) -> dict:
+    try:
+        return await verify_access_token(_bearer_token(request), get_settings())
     except AuthError:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid_access_token")
 
@@ -101,6 +120,19 @@ async def send_password_reset_email(email: str, link: str, ttl_minutes: int) -> 
             context={"reset_url": link, "ttl_minutes": ttl_minutes},
         )
     except Exception:  # noqa: BLE001 - never surface delivery problems to the requester
+        pass
+
+
+async def send_password_changed_email(email: str) -> None:
+    try:
+        await send_template_email(
+            sender=get_email_sender(),
+            to=[email],
+            subject="Your password was changed",
+            template_name="password_changed",
+            context={},
+        )
+    except Exception:  # noqa: BLE001 - a notification must never fail the change itself
         pass
 
 
@@ -417,3 +449,44 @@ async def reset_password(
     )
 
     return {"message": "Password has been reset."}
+
+
+@router.post("/change-password", dependencies=[Depends(change_password_limiter)])
+async def change_password(
+    data: ChangePasswordSchema,
+    background_tasks: BackgroundTasks,
+    claims: dict = Depends(current_user_claims),
+    db: AsyncSession = Depends(get_session),
+):
+    settings = get_settings()
+    pm = get_password_manager()
+
+    stmt = select(User).options(selectinload(User.roles)).where(User.id == int(claims["sub"]))
+    user = (await db.execute(stmt)).scalar_one_or_none()
+    if user is None or not user.is_active:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid_access_token")
+
+    if not pm.verify_password(data.current_password, user.password_hash):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid_credentials")
+    try:
+        new_hash = pm.hash_password(data.new_password)
+    except ValueError as err:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err))
+
+    user.password_hash = new_hash
+    await revoke_all_for_user(db, user.id)
+    await revoke_user_tokens(
+        str(user.id),
+        ttl_seconds=settings.access_token_expire_minutes * 60 + settings.jwt_leeway_seconds,
+        settings=settings,
+    )
+
+    access_token = create_access_token(user)
+    refresh_token, refresh_jti, expires_at = create_refresh_token(user)
+    store_refresh_token(
+        db, raw_token=refresh_token, jti=refresh_jti, user_id=user.id, expires_at=expires_at
+    )
+    await db.commit()
+
+    background_tasks.add_task(send_password_changed_email, user.email)
+    return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer"}

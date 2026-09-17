@@ -101,7 +101,7 @@ async def _user_revoked_at(user_id: str, settings: CommonSettings) -> float | No
         return None
 
 
-async def _resolve_identity(token: str, settings: CommonSettings) -> str:
+async def verify_access_token(token: str, settings: CommonSettings) -> dict:
     claims = decode_access_token(token, settings)
     user_id = claims.get("sub")
     if not user_id:
@@ -115,9 +115,15 @@ async def _resolve_identity(token: str, settings: CommonSettings) -> str:
     if revoked_at is not None and claims.get("iat", 0) < revoked_at:
         raise AuthError("Access token has been revoked.")
 
-    user_id_var.set(str(user_id))
+    return claims
+
+
+async def _resolve_identity(token: str, settings: CommonSettings) -> str:
+    claims = await verify_access_token(token, settings)
+    user_id = str(claims["sub"])
+    user_id_var.set(user_id)
     roles_var.set(_normalize_roles(claims.get("roles")))
-    return str(user_id)
+    return user_id
 
 
 def require_auth(*, settings: CommonSettings) -> AuthDependency:

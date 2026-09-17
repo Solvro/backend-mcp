@@ -7,6 +7,7 @@ from common.auth import (
     optional_auth,
     require_auth,
     require_roles,
+    verify_access_token,
 )
 from common.context import roles_var, user_id_var
 from common.errors import AuthError, ForbiddenError
@@ -369,3 +370,28 @@ async def test_watermark_lookup_failure_degrades_to_accepting(monkeypatch) -> No
     headers = {"Authorization": f"Bearer {_token({'sub': 'u1', 'iat': 1})}"}
 
     assert await dep(_request(headers)) == "u1"
+
+
+async def test_verify_access_token_returns_claims_for_live_token(monkeypatch) -> None:
+    _patch_denylist(monkeypatch)
+    _patch_user_watermark(monkeypatch, revoked_at=None)
+
+    claims = await verify_access_token(_token({"sub": "u1", "jti": "j1", "iat": 5}), _settings())
+
+    assert claims["sub"] == "u1" and claims["jti"] == "j1"
+
+
+async def test_verify_access_token_rejects_denylisted_jti(monkeypatch) -> None:
+    _patch_denylist(monkeypatch, contains=True)
+    _patch_user_watermark(monkeypatch, revoked_at=None)
+
+    with pytest.raises(AuthError, match="revoked"):
+        await verify_access_token(_token({"sub": "u1", "jti": "gone"}), _settings())
+
+
+async def test_verify_access_token_rejects_token_older_than_user_watermark(monkeypatch) -> None:
+    _patch_denylist(monkeypatch)
+    _patch_user_watermark(monkeypatch, revoked_at=100.0)
+
+    with pytest.raises(AuthError, match="revoked"):
+        await verify_access_token(_token({"sub": "u1", "iat": 99}), _settings())

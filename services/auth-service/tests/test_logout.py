@@ -11,6 +11,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
+pytestmark = pytest.mark.unit
+
 PASSWORD = "SecretPassword123!"
 
 

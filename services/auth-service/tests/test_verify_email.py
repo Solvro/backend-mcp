@@ -6,6 +6,8 @@ from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.mark.asyncio
 async def test_verify_email_success(

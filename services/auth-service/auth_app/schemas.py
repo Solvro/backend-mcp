@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 PASSWORD_FIELD = Field(..., min_length=6)
 
@@ -50,3 +50,14 @@ class ForgotPasswordSchema(BaseModel):
 class ResetPasswordSchema(BaseModel):
     token: str
     new_password: str = PASSWORD_FIELD
+
+
+class ChangePasswordSchema(BaseModel):
+    current_password: str
+    new_password: str = PASSWORD_FIELD
+
+    @model_validator(mode="after")
+    def _must_actually_change(self) -> "ChangePasswordSchema":
+        if self.new_password == self.current_password:
+            raise ValueError("new_password must differ from current_password")
+        return self

@@ -7,6 +7,8 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+pytestmark = pytest.mark.unit
+
 PASSWORD = "SecretPassword123!"
 
 

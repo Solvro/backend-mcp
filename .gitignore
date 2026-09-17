@@ -12,6 +12,12 @@ wheels/
 # Ephemeral e2e JWT keypair (just e2e-keys)
 docker/.e2e-keys/
 
+# Local self-signed TLS pair for the edge (just tls-selfsigned)
+docker/.tls/
+
+# Production env (non-secret config, but machine-specific)
+.env.prod
+
 # Virtual environments
 .venv
 

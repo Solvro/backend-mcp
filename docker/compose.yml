@@ -50,6 +50,7 @@ services:
 
   mailpit:
     image: axllent/mailpit:latest
+    profiles: ["dev"]  # local mail sink only; `just up` enables it, the prod overlay never does
     environment:
       MP_SMTP_AUTH_ACCEPT_ANY: "true"
       MP_SMTP_AUTH_ALLOW_INSECURE: "true"
@@ -88,6 +89,14 @@ services:
       FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-10.89.0.10}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-mcp_backend}
       REDIS_URL: redis://redis:6379
+      # Dev RS256 pair from `just e2e-keys` (gitignored); prod mounts real docker secrets.
+      JWT_PRIVATE_KEY_FILE: /run/dev-keys/jwt_private.pem
+      JWT_PUBLIC_KEY_FILE: /run/dev-keys/jwt_public.pem
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+    volumes:
+      - ./.e2e-keys:/run/dev-keys:ro
     ports:
       - "8000:8000"
     depends_on:
@@ -115,6 +124,9 @@ services:
       MONGO_URI: mongodb://mongo:27017
       REDIS_URL: redis://redis:6379
       MCP_SERVER_URL: ${MCP_SERVER_URL:-http://mcp-server:8005/mcp}
+      JWT_PUBLIC_KEY_FILE: /run/dev-keys/jwt_public.pem
+    volumes:
+      - ./.e2e-keys:/run/dev-keys:ro
     ports:
       - "8001:8000"
     depends_on:
@@ -134,8 +146,25 @@ services:
     image: nginx:1.27-alpine
     volumes:
       - ../gateway/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../gateway/nginx/templates:/etc/nginx/templates:ro
+    environment:
+      # Rendered into the server blocks at start; see gateway/nginx/templates.
+      SERVER_NAME: ${SERVER_NAME:-localhost}
+      CORS_ALLOWED_ORIGIN: ${CORS_ALLOWED_ORIGIN:-http://localhost:3000}
+      PUBLIC_HTTPS_SUFFIX: ${PUBLIC_HTTPS_SUFFIX:-:8443}
+      NGINX_ENVSUBST_FILTER: ^(SERVER_NAME|CORS_ALLOWED_ORIGIN|PUBLIC_HTTPS_SUFFIX)$$
+    secrets:
+      - tls_cert
+      - tls_key
     ports:
       - "8080:80"
+      - "8443:443"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
     depends_on:
       auth-service:
         condition: service_healthy
@@ -144,6 +173,12 @@ services:
     networks:
       backend:
         ipv4_address: 10.89.0.10
+
+secrets:
+  tls_cert:
+    file: ./.tls/cert.pem
+  tls_key:
+    file: ./.tls/key.pem
 
 volumes:
   pgdata:

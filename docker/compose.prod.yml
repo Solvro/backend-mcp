@@ -1,0 +1,162 @@
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+x-restart: &restart unless-stopped
+
+services:
+  postgres:
+    restart: *restart
+    logging: *logging
+    ports: !reset []
+    environment: !override
+      POSTGRES_USER: ${POSTGRES_USER:?set in .env.prod}
+      POSTGRES_DB: ${POSTGRES_DB:?set in .env.prod}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password]
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 2g }
+        reservations: { memory: 512m }
+
+  mongo:
+    restart: *restart
+    logging: *logging
+    ports: !reset []
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:?set in .env.prod}
+      MONGO_INITDB_ROOT_PASSWORD_FILE: /run/secrets/mongo_root_password
+    secrets: [mongo_root_password]
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 2g }
+        reservations: { memory: 512m }
+
+  redis:
+    restart: *restart
+    logging: *logging
+    ports: !reset []
+    # requirepass from the secret file; $$ keeps compose from interpolating the subshell.
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$$(cat /run/secrets/redis_password)\""]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$(cat /run/secrets/redis_password)\" --no-auth-warning ping | grep -q PONG"]
+    secrets: [redis_password]
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 512m }
+
+  migrate:
+    logging: *logging
+    environment: !override
+      DATABASE_URL_FILE: /run/secrets/database_url
+    secrets: [database_url]
+
+  auth-service:
+    restart: *restart
+    logging: *logging
+    ports: !reset []
+    read_only: true
+    tmpfs: [/tmp]
+    stop_grace_period: 20s
+    environment: !override
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      FORWARDED_ALLOW_IPS: 10.89.0.10
+      DATABASE_URL_FILE: /run/secrets/database_url
+      REDIS_URL_FILE: /run/secrets/redis_url
+      JWT_ALGORITHM: RS256
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key
+      JWT_PREVIOUS_PUBLIC_KEY_FILE: /run/secrets/jwt_previous_public_key
+      JWT_ISSUER: ${JWT_ISSUER:-auth-service}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-ml-mcp-backend}
+      FRONTEND_URL: ${FRONTEND_URL:?set in .env.prod}
+      SMTP_HOST: ${SMTP_HOST:?set in .env.prod}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS_FILE: /run/secrets/smtp_pass
+      SMTP_FROM: ${SMTP_FROM:?set in .env.prod}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      EMAIL_FROM: ${SMTP_FROM:?set in .env.prod}
+    secrets:
+      - database_url
+      - redis_url
+      - jwt_private_key
+      - jwt_public_key
+      - jwt_previous_public_key
+      - smtp_pass
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 768m }   # argon2id at 64 MiB per hash x parallel logins
+        reservations: { memory: 256m }
+
+  chat-service:
+    restart: *restart
+    logging: *logging
+    ports: !reset []
+    read_only: true
+    tmpfs: [/tmp]
+    stop_grace_period: 30s   # let an in-flight answer finish
+    environment: !override
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      FORWARDED_ALLOW_IPS: 10.89.0.10
+      MONGO_URI_FILE: /run/secrets/mongo_uri
+      REDIS_URL_FILE: /run/secrets/redis_url
+      MCP_SERVER_URL: ${MCP_SERVER_URL:-http://mcp-server:8005/mcp}
+      JWT_ALGORITHM: RS256
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key
+      JWT_PREVIOUS_PUBLIC_KEY_FILE: /run/secrets/jwt_previous_public_key
+      JWT_ISSUER: ${JWT_ISSUER:-auth-service}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-ml-mcp-backend}
+      OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
+      GOOGLE_API_KEY_FILE: /run/secrets/google_api_key
+      ANSWER_MODEL_PROVIDER: ${ANSWER_MODEL_PROVIDER:-}
+      LANGFUSE_SECRET_KEY_FILE: /run/secrets/langfuse_secret_key
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_HOST: ${LANGFUSE_HOST:-https://cloud.langfuse.com}
+    secrets:
+      - mongo_uri
+      - redis_url
+      - jwt_public_key
+      - jwt_previous_public_key
+      - openai_api_key
+      - google_api_key
+      - langfuse_secret_key
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 1g }
+        reservations: { memory: 256m }
+
+  nginx:
+    restart: *restart
+    logging: *logging
+    read_only: true
+    tmpfs: [/var/cache/nginx, /var/run, /etc/nginx/conf.d]   # envsubst writes rendered confs here
+    ports: !override
+      - "80:80"
+      - "443:443"
+    environment:
+      SERVER_NAME: ${SERVER_NAME:?set in .env.prod}
+      CORS_ALLOWED_ORIGIN: ${CORS_ALLOWED_ORIGIN:?set in .env.prod}
+      PUBLIC_HTTPS_SUFFIX: ""
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 128m }
+
+secrets:
+  postgres_password:        { file: "${SECRETS_DIR:-/etc/ml-mcp/secrets}/postgres_password" }
+  mongo_root_password:      { file: "${SECRETS_DIR:-/etc/ml-mcp/secrets}/mongo_root_password" }
+  redis_password:           { file: "${SECRETS_DIR:-/etc/ml-mcp/secrets}/redis_password" }
+  database_url:             { file: "${SECRETS_DIR:-/etc/ml-mcp/secrets}/database_url" }
+  mongo_uri:                { file: "${SECRETS_DIR:-/etc/ml-mcp/secrets}/mongo_uri" }
+  redis_url:                { file: "${SECRETS_DIR:-/etc/ml-mcp/secrets}/redis_url" }
+  jwt_private_key:          { file: "${SECRETS_DIR:-/etc/ml-mcp/secrets}/jwt_private_key.pem" }
+  jwt_public_key:           { file: "${SECRETS_DIR:-/etc/ml-mcp/secrets}/jwt_public_key.pem" }
+  jwt_previous_public_key:  { file: "${SECRETS_DIR:-/etc/ml-mcp/secrets}/jwt_previous_public_key.pem" }
+  openai_api_key:           { file: "${SECRETS_DIR:-/etc/ml-mcp/secrets}/openai_api_key" }
+  google_api_key:           { file: "${SECRETS_DIR:-/etc/ml-mcp/secrets}/google_api_key" }
+  langfuse_secret_key:      { file: "${SECRETS_DIR:-/etc/ml-mcp/secrets}/langfuse_secret_key" }
+  smtp_pass:                { file: "${SECRETS_DIR:-/etc/ml-mcp/secrets}/smtp_pass" }
+  tls_cert:                 { file: "${SECRETS_DIR:-/etc/ml-mcp/secrets}/tls_cert.pem" }
+  tls_key:                  { file: "${SECRETS_DIR:-/etc/ml-mcp/secrets}/tls_key.pem" }

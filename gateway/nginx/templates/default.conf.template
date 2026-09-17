@@ -1,0 +1,96 @@
+# Rendered by envsubst at container start. Only ${SERVER_NAME}, ${CORS_ALLOWED_ORIGIN} and
+# ${PUBLIC_HTTPS_SUFFIX} are substituted (NGINX_ENVSUBST_FILTER); every other $var is nginx's.
+
+# :80 - redirect to HTTPS. /health stays reachable in plain HTTP so load balancers and
+# uptime probes that terminate TLS elsewhere (or don't speak it) can still see liveness.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${SERVER_NAME};
+
+    location = /health {
+        include /etc/nginx/conf.d/proxy_common.inc;
+        proxy_read_timeout 10s;
+        proxy_pass http://chat_service;
+    }
+
+    location / {
+        return 301 https://$host${PUBLIC_HTTPS_SUFFIX}$request_uri;
+    }
+}
+
+# ---------------------------------------------------------------------------------------
+# :443 - the edge proper.
+# ---------------------------------------------------------------------------------------
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name ${SERVER_NAME};
+
+    # Cert + key arrive as docker secrets; locally `just tls-selfsigned` writes them.
+    ssl_certificate     /run/secrets/tls_cert;
+    ssl_certificate_key /run/secrets/tls_key;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305;
+    ssl_prefer_server_ciphers off;
+    ssl_session_timeout 1d;
+    ssl_session_cache   shared:EdgeSSL:10m;
+    ssl_session_tickets off;
+
+    # Security headers. NOTE: nginx does not inherit add_header into a location that sets its
+    # own, so *every* add_header for this vhost lives here and locations add none.
+    add_header X-Frame-Options           "DENY"                                 always;
+    add_header X-Content-Type-Options    "nosniff"                              always;
+    add_header Referrer-Policy           "strict-origin-when-cross-origin"      always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains"  always;
+
+    # CORS (values are empty -> header omitted - unless the origin is allow-listed).
+    add_header Access-Control-Allow-Origin      $cors_origin             always;
+    add_header Access-Control-Allow-Credentials $cors_credentials        always;
+    add_header Access-Control-Expose-Headers    $cors_expose             always;
+    add_header Access-Control-Allow-Methods     $cors_preflight_methods  always;
+    add_header Access-Control-Allow-Headers     $cors_preflight_headers  always;
+    add_header Access-Control-Max-Age           $cors_preflight_max_age  always;
+    add_header Vary                             "Origin"                 always;
+
+    # auth-service: argon2 + DB round-trips; email goes out in the background.
+    location /auth/ {
+        if ($request_method = OPTIONS) { return 204; }
+        include /etc/nginx/conf.d/proxy_common.inc;
+        proxy_read_timeout 30s;
+        proxy_pass http://auth_service;
+    }
+
+    location = /.well-known/jwks.json {
+        include /etc/nginx/conf.d/proxy_common.inc;
+        proxy_read_timeout 5s;
+        proxy_pass http://auth_service;
+    }
+
+    # chat-service: answer = up to ANSWER_KG_RETRIEVAL_ATTEMPTS (3) knowledge-graph lookups,
+    # each MCP_TIMEOUT_SECONDS (15) x (1 + MCP_MAX_RETRIES (2)) + backoff ~ 49s worst case
+    location /api/ {
+        if ($request_method = OPTIONS) { return 204; }
+        include /etc/nginx/conf.d/proxy_common.inc;
+        proxy_read_timeout 180s;
+        proxy_buffering    off;   # let a streamed answer flow through unbuffered
+        proxy_pass http://chat_service;
+    }
+
+    location = /health {
+        include /etc/nginx/conf.d/proxy_common.inc;
+        proxy_read_timeout 10s;
+        proxy_pass http://chat_service;
+    }
+    location = /health/auth {
+        include /etc/nginx/conf.d/proxy_common.inc;
+        proxy_read_timeout 10s;
+        rewrite ^ /health break;
+        proxy_pass http://auth_service;
+    }
+
+    location / {
+        return 404;
+    }
+}

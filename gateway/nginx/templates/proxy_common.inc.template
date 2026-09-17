@@ -1,0 +1,25 @@
+# Shared upstream settings, included per location (nginx has no location-level inheritance
+# for proxy_* once a location sets any of them).
+proxy_http_version 1.1;
+proxy_set_header Connection        "";
+proxy_set_header Host              $host;
+proxy_set_header X-Real-IP         $remote_addr;
+proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+proxy_set_header X-Forwarded-Proto $scheme;
+proxy_set_header X-Request-ID      $request_id_final;
+
+proxy_connect_timeout 5s;
+proxy_send_timeout    30s;
+# proxy_read_timeout is deliberately per-location: it is the latency budget of each upstream.
+
+# The edge owns these; a second copy from the app would break browsers (duplicate ACAO).
+proxy_hide_header Access-Control-Allow-Origin;
+proxy_hide_header Access-Control-Allow-Credentials;
+proxy_hide_header Access-Control-Allow-Methods;
+proxy_hide_header Access-Control-Allow-Headers;
+proxy_hide_header Access-Control-Expose-Headers;
+proxy_hide_header Access-Control-Max-Age;
+proxy_hide_header X-Frame-Options;
+proxy_hide_header X-Content-Type-Options;
+proxy_hide_header Referrer-Policy;
+proxy_hide_header Strict-Transport-Security;

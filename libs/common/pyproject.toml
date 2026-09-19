@@ -7,7 +7,7 @@ name = "common"
 version = "0.1.0"
 description = "Shared libraries, settings, logging, tracing and error primitives for ml-mcp-backend"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = { text = "AGPL-3.0-or-later" }
 dependencies = [
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",

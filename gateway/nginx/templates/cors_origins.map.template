@@ -1,0 +1,2 @@
+# One allow-listed browser origin (scheme://host[:port], no trailing slash) -> echoed back.
+"${CORS_ALLOWED_ORIGIN}" $http_origin;

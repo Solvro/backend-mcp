@@ -201,14 +201,7 @@ async def register(
     verify_link = f"{settings.frontend_url.rstrip('/')}/auth/verify?token={raw_token}"
     background_tasks.add_task(send_verification_email, user.email, user.username, verify_link)
 
-    return UserResponseSchema(
-        id=user.id,
-        username=user.username,
-        email=user.email,
-        email_verified=user.email_verified,
-        is_active=user.is_active,
-        roles=[r.name for r in user.roles],
-    )
+    return UserResponseSchema.model_validate(user)
 
 
 @router.post("/login", dependencies=[Depends(login_limiter)])
@@ -490,3 +483,12 @@ async def change_password(
 
     background_tasks.add_task(send_password_changed_email, user.email)
     return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer"}
+
+
+@router.get("/me", response_model=UserResponseSchema)
+async def me(claims: dict = Depends(current_user_claims), db: AsyncSession = Depends(get_session)):
+    stmt = select(User).options(selectinload(User.roles)).where(User.id == int(claims["sub"]))
+    user = (await db.execute(stmt)).scalar_one_or_none()
+    if user is None or not user.is_active:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid_access_token")
+    return UserResponseSchema.model_validate(user)

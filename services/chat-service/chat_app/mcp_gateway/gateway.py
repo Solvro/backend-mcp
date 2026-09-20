@@ -7,8 +7,9 @@ from typing import Any
 import httpx
 from common.errors import ServiceUnavailableError, UpstreamError
 from fastmcp import Client
+from fastmcp.exceptions import ToolError
 
-from chat_app.mcp_gateway.circuit_breaker import CircuitBreaker
+from chat_app.mcp_gateway.circuit_breaker import CircuitBreaker, CircuitState
 from chat_app.settings import ChatSettings
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,15 @@ _TRANSIENT_EXCEPTIONS: tuple[type[BaseException], ...] = (
     *_RETRYABLE_EXCEPTIONS,
 )
 _TRANSIENT_STATUS_CODES = frozenset({429, 502, 503, 504})
+
+_UPSTREAM_OUTAGE_MESSAGES = frozenset(
+    {
+        "The knowledge graph pipeline exceeded the maximum allowed wait time.",
+        "The language model request exceeded the maximum allowed wait time.",
+        "The language model provider could not be reached.",
+        "The knowledge graph database could not be reached.",
+    }
+)
 
 
 class KnowledgeGraphGateway:
@@ -91,9 +101,11 @@ class KnowledgeGraphGateway:
 
         try:
             result = await self._run_with_retry(user_input, trace_id, session_id)
-        except UpstreamError:
+        except UpstreamError as exc:
             if self._breaker is not None:
                 self._breaker.record_failure()
+            if isinstance(exc, ServiceUnavailableError):
+                exc.headers = {"Retry-After": str(self._retry_after_hint())}
             raise
         if self._breaker is not None:
             self._breaker.record_success()
@@ -128,6 +140,11 @@ class KnowledgeGraphGateway:
                     ) from exc
                 raise UpstreamError("The knowledge graph service returned an error.") from exc
 
+    def _retry_after_hint(self) -> int:
+        if self._breaker is not None and self._breaker.state is CircuitState.OPEN:
+            return max(1, math.ceil(self._breaker.retry_after()))
+        return max(1, math.ceil(self._retry_max_delay))
+
     async def _call_tool_once(
         self, user_input: str, trace_id: str | None, session_id: str | None
     ) -> str:
@@ -161,6 +178,8 @@ class KnowledgeGraphGateway:
 
     @staticmethod
     def _is_transient(exc: BaseException) -> bool:
+        if isinstance(exc, ToolError) and str(exc).strip() in _UPSTREAM_OUTAGE_MESSAGES:
+            return True
         return _matches(exc, _TRANSIENT_EXCEPTIONS, with_status_codes=True)
 
     @staticmethod
@@ -172,13 +191,9 @@ class KnowledgeGraphGateway:
         return "\n".join(block.text for block in result.content if hasattr(block, "text"))
 
     async def ping(self, *, timeout: float) -> bool:
-        try:
-            client = await self._ensure_client()
-            async with asyncio.timeout(timeout):
-                await client.ping()
-        except Exception:
-            await self._drop_client()  # the next call reconnects instead of reusing a dead session
-            raise
+        client = await self._ensure_client()
+        async with asyncio.timeout(timeout):
+            await client.ping()
         return True
 
     async def aclose(self) -> None:

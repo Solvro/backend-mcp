@@ -309,6 +309,16 @@ async def test_open_circuit_surfaces_as_503_with_retry_after(repo) -> None:
     assert history[1].metadata["source"] == SOURCE_ERROR
 
 
+async def test_transient_outage_503_reaches_the_client_with_retry_after(repo) -> None:
+    gateway = FakeGateway(error=ServiceUnavailableError(headers={"Retry-After": "30"}))
+    client, _ = _make_client(repo, gateway=gateway, agent=_answer_agent())
+
+    resp = client.post("/api/chat", json={"message": "Pytanie?"})
+
+    assert resp.status_code == 503
+    assert resp.headers["Retry-After"] == "30"
+
+
 async def test_conversation_session_id_is_forwarded_to_the_tool(repo) -> None:
     gateway = FakeGateway()
     client, _ = _make_client(repo, gateway=gateway, agent=_answer_agent())

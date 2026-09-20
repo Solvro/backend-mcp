@@ -9,7 +9,7 @@ class ChatSettings(CommonSettings):
     app_name: str = "chat-service"
 
     mcp_server_url: str = "http://localhost:8005/mcp"
-    mcp_timeout_seconds: float = 15.0
+    mcp_timeout_seconds: float = 95.0
     mcp_init_timeout_seconds: float = 10.0
     mcp_max_retries: int = 2
     mcp_retry_base_delay: float = 0.2
@@ -45,7 +45,7 @@ class ChatSettings(CommonSettings):
     answer_gemini_model: str = "gemini-2.5-flash-lite"
     answer_temperature: float = 0.0
 
-    answer_kg_retrieval_attempts: int = 3
+    answer_kg_retrieval_attempts: int = 1
 
     answer_cache_enabled: bool = True
     answer_cache_ttl_seconds: int = 3600

@@ -61,7 +61,9 @@ setup_metrics(app, get_settings())
 app.include_router(
     build_health_router(
         service_name="chat-service",
-        dependencies_provider=lambda: build_dependencies(get_settings()),
+        dependencies_provider=lambda: build_dependencies(
+            get_settings(), gateway=getattr(app.state, "mcp_gateway", None)
+        ),
     )
 )
 

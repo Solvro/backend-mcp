@@ -55,7 +55,9 @@ def build_answer_agent(
         ctx.deps.tool_called = True
         for _ in range(retrieval_attempts):
             with start_span("mcp.knowledge_graph", as_type="tool", input=query):
-                result = await ctx.deps.gateway.query(query, trace_id=ctx.deps.trace_id)
+                result = await ctx.deps.gateway.query(
+                    query, trace_id=ctx.deps.trace_id, session_id=ctx.deps.session_id
+                )
             if not is_no_knowledge(result):
                 ctx.deps.knowledge_retrieved = True
                 return result
@@ -84,17 +86,18 @@ async def generate_answer(
     history: str,
     gateway: KnowledgeGraphGateway,
     trace_id: str | None = None,
+    session_id: str | None = None,
 ) -> AnswerResult:
     question = validate_chat_message(question)
 
     if agent is None:
         with start_span("mcp.knowledge_graph", as_type="tool", input=question):
-            raw = await gateway.query(question, trace_id=trace_id)
+            raw = await gateway.query(question, trace_id=trace_id, session_id=session_id)
         if is_no_knowledge(raw):
             return AnswerResult(answer=NO_KNOWLEDGE_REPLY)
         return fallback_answer(raw)
 
-    deps = AnswerDeps(gateway=gateway, trace_id=trace_id)
+    deps = AnswerDeps(gateway=gateway, trace_id=trace_id, session_id=session_id)
     prompt = render_answer_prompt(question=question, history=history)
     with start_span("answer-llm", as_type="generation", input=question):
         result = await agent.run(prompt, deps=deps)

@@ -10,7 +10,7 @@ from chat_app.answer import (
     render_answer_prompt,
     select_answer_model,
 )
-from chat_app.mcp_gateway import NO_KNOWLEDGE_SENTINEL
+from chat_app.mcp_gateway import NO_GRAPH_DATA_SENTINEL, NO_KNOWLEDGE_SENTINEL
 from chat_app.settings import ChatSettings
 from common.errors import ValidationError
 from pydantic_ai.messages import ModelRequest, ModelResponse, ToolCallPart
@@ -34,7 +34,9 @@ class FakeGateway:
         self.error = error
         self.calls: list[tuple[str, str | None]] = []
 
-    async def query(self, user_input: str, trace_id: str | None = None) -> str:
+    async def query(
+        self, user_input: str, trace_id: str | None = None, session_id: str | None = None
+    ) -> str:
         self.calls.append((user_input, trace_id))
         if self.error is not None:
             raise self.error
@@ -46,7 +48,9 @@ class SequencedGateway:
         self._results = results
         self.calls: list[tuple[str, str | None]] = []
 
-    async def query(self, user_input: str, trace_id: str | None = None) -> str:
+    async def query(
+        self, user_input: str, trace_id: str | None = None, session_id: str | None = None
+    ) -> str:
         self.calls.append((user_input, trace_id))
         idx = min(len(self.calls) - 1, len(self._results) - 1)
         return self._results[idx]
@@ -149,11 +153,11 @@ async def test_agent_calls_tool_and_returns_grounded_answer() -> None:
     assert gateway.calls[0][1] == "tid"
 
 
-async def test_sentinel_from_tool_yields_polite_no_info_reply() -> None:
-    gateway = FakeGateway(result=NO_KNOWLEDGE_SENTINEL)
-    settings = _settings()
+@pytest.mark.parametrize("sentinel", [NO_KNOWLEDGE_SENTINEL, NO_GRAPH_DATA_SENTINEL])
+async def test_sentinel_from_tool_yields_polite_no_info_reply(sentinel) -> None:
+    gateway = FakeGateway(result=sentinel)
     agent = build_answer_agent(
-        settings,
+        _settings(answer_kg_retrieval_attempts=1),
         model=TestModel(custom_output_args={"answer": "hallucinated", "warning": None}),
     )
     assert agent is not None
@@ -161,15 +165,28 @@ async def test_sentinel_from_tool_yields_polite_no_info_reply() -> None:
     result = await generate_answer(agent, question="Nieistniejące?", history="", gateway=gateway)
 
     assert result.answer == NO_KNOWLEDGE_REPLY
-    assert len(gateway.calls) == settings.answer_kg_retrieval_attempts
+    assert len(gateway.calls) == 1
+
+
+def test_default_is_a_single_retrieval_attempt() -> None:
+    # repeating the identical query buys nothing: ml-mcp escalates internally at temperature 0
+    assert ChatSettings.model_fields["answer_kg_retrieval_attempts"].default == 1
+
+
+async def test_fallback_path_treats_empty_retrieval_as_no_knowledge() -> None:
+    gateway = FakeGateway(result=NO_GRAPH_DATA_SENTINEL)
+    result = await generate_answer(None, question="Kto wykłada?", history="", gateway=gateway)
+    assert result.answer == NO_KNOWLEDGE_REPLY
+    assert result.warning is None
 
 
 async def test_tool_retries_sentinel_until_knowledge_is_found() -> None:
+    # the knob still works when someone opts back into repeats
     gateway = SequencedGateway(
         [NO_KNOWLEDGE_SENTINEL, NO_KNOWLEDGE_SENTINEL, "Wykład: dr Kowalski."]
     )
     agent = build_answer_agent(
-        _settings(),
+        _settings(answer_kg_retrieval_attempts=3),
         model=TestModel(custom_output_args={"answer": "grounded", "warning": None}),
     )
     assert agent is not None

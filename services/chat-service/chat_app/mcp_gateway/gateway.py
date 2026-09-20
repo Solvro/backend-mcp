@@ -16,23 +16,26 @@ logger = logging.getLogger(__name__)
 TOOL_NAME = "knowledge_graph_tool"
 
 NO_KNOWLEDGE_SENTINEL = "W bazie danych nie ma informacji"
-_EMPTY_RESULTS = frozenset({"", "[]", "{}"})
+NO_GRAPH_DATA_SENTINEL = "Brak danych w grafie wiedzy dla tego pytania."
+_NO_KNOWLEDGE_RESULTS = frozenset({NO_KNOWLEDGE_SENTINEL, NO_GRAPH_DATA_SENTINEL, "", "[]", "{}"})
 
 
 def is_no_knowledge(text: str) -> bool:
-    stripped = text.strip()
-    return stripped == NO_KNOWLEDGE_SENTINEL or stripped in _EMPTY_RESULTS
+    return text.strip() in _NO_KNOWLEDGE_RESULTS
 
 
-_TRANSIENT_EXCEPTIONS: tuple[type[BaseException], ...] = (
-    TimeoutError,
+_RETRYABLE_EXCEPTIONS: tuple[type[BaseException], ...] = (
     ConnectionError,
     httpx.ConnectError,
     httpx.ConnectTimeout,
-    httpx.ReadTimeout,
-    httpx.WriteTimeout,
     httpx.PoolTimeout,
     httpx.RemoteProtocolError,
+)
+_TRANSIENT_EXCEPTIONS: tuple[type[BaseException], ...] = (
+    TimeoutError,
+    httpx.ReadTimeout,
+    httpx.WriteTimeout,
+    *_RETRYABLE_EXCEPTIONS,
 )
 _TRANSIENT_STATUS_CODES = frozenset({429, 502, 503, 504})
 
@@ -78,14 +81,16 @@ class KnowledgeGraphGateway:
             breaker=breaker,
         )
 
-    async def query(self, user_input: str, trace_id: str | None = None) -> str:
+    async def query(
+        self, user_input: str, trace_id: str | None = None, session_id: str | None = None
+    ) -> str:
         if self._breaker is not None and not self._breaker.allow():
             retry_after = max(1, math.ceil(self._breaker.retry_after()))
             logger.warning("MCP circuit open, failing fast (retry_after=%ds)", retry_after)
             raise ServiceUnavailableError(headers={"Retry-After": str(retry_after)})
 
         try:
-            result = await self._run_with_retry(user_input, trace_id)
+            result = await self._run_with_retry(user_input, trace_id, session_id)
         except UpstreamError:
             if self._breaker is not None:
                 self._breaker.record_failure()
@@ -94,14 +99,16 @@ class KnowledgeGraphGateway:
             self._breaker.record_success()
         return result
 
-    async def _run_with_retry(self, user_input: str, trace_id: str | None) -> str:
+    async def _run_with_retry(
+        self, user_input: str, trace_id: str | None, session_id: str | None
+    ) -> str:
         attempt = 0
         while True:
             try:
-                return await self._call_tool_once(user_input, trace_id)
+                return await self._call_tool_once(user_input, trace_id, session_id)
             except Exception as exc:  # noqa: BLE001 - classified below
                 transient = self._is_transient(exc)
-                if transient and attempt < self._max_retries:
+                if self._is_retryable(exc) and attempt < self._max_retries:
                     await self._drop_client()
                     delay = self._backoff(attempt)
                     logger.warning(
@@ -121,12 +128,14 @@ class KnowledgeGraphGateway:
                     ) from exc
                 raise UpstreamError("The knowledge graph service returned an error.") from exc
 
-    async def _call_tool_once(self, user_input: str, trace_id: str | None) -> str:
+    async def _call_tool_once(
+        self, user_input: str, trace_id: str | None, session_id: str | None
+    ) -> str:
         client = await self._ensure_client()
         async with asyncio.timeout(self._timeout):
             result = await client.call_tool(
                 TOOL_NAME,
-                {"user_input": user_input, "trace_id": trace_id},
+                {"user_input": user_input, "trace_id": trace_id, "session_id": session_id},
             )
         return self._join_text(result)
 
@@ -152,18 +161,25 @@ class KnowledgeGraphGateway:
 
     @staticmethod
     def _is_transient(exc: BaseException) -> bool:
-        cursor: BaseException | None = exc
-        while cursor is not None:
-            if isinstance(cursor, _TRANSIENT_EXCEPTIONS):
-                return True
-            if isinstance(cursor, httpx.HTTPStatusError):
-                return cursor.response.status_code in _TRANSIENT_STATUS_CODES
-            cursor = cursor.__cause__
-        return False
+        return _matches(exc, _TRANSIENT_EXCEPTIONS, with_status_codes=True)
+
+    @staticmethod
+    def _is_retryable(exc: BaseException) -> bool:
+        return _matches(exc, _RETRYABLE_EXCEPTIONS, with_status_codes=True)
 
     @staticmethod
     def _join_text(result: Any) -> str:
         return "\n".join(block.text for block in result.content if hasattr(block, "text"))
+
+    async def ping(self, *, timeout: float) -> bool:
+        try:
+            client = await self._ensure_client()
+            async with asyncio.timeout(timeout):
+                await client.ping()
+        except Exception:
+            await self._drop_client()  # the next call reconnects instead of reusing a dead session
+            raise
+        return True
 
     async def aclose(self) -> None:
         await self._drop_client()
@@ -173,6 +189,19 @@ class KnowledgeGraphGateway:
 
     async def __aexit__(self, *exc: object) -> None:
         await self.aclose()
+
+
+def _matches(
+    exc: BaseException, kinds: tuple[type[BaseException], ...], *, with_status_codes: bool
+) -> bool:
+    cursor: BaseException | None = exc
+    while cursor is not None:
+        if isinstance(cursor, kinds):
+            return True
+        if with_status_codes and isinstance(cursor, httpx.HTTPStatusError):
+            return cursor.response.status_code in _TRANSIENT_STATUS_CODES
+        cursor = cursor.__cause__
+    return False
 
 
 async def check_mcp(

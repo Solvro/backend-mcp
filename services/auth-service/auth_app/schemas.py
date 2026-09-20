@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 PASSWORD_FIELD = Field(..., min_length=6)
@@ -24,8 +26,14 @@ class UserResponseSchema(BaseModel):
     email: EmailStr
     email_verified: bool
     roles: list[str] = []
+    created_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("roles", mode="before")
+    @classmethod
+    def _role_names(cls, value: object) -> object:
+        return [getattr(r, "name", r) for r in value] if isinstance(value, (list, tuple)) else value
 
     @field_validator("roles", mode="before")
     @classmethod

@@ -3,6 +3,7 @@ import asyncio
 import httpx
 import pytest
 from chat_app.mcp_gateway import (
+    NO_GRAPH_DATA_SENTINEL,
     NO_KNOWLEDGE_SENTINEL,
     CircuitBreaker,
     CircuitState,
@@ -46,7 +47,11 @@ def stub_server(handler) -> FastMCP:
     server = FastMCP("stub-mcp")
 
     @server.tool
-    async def knowledge_graph_tool(user_input: str, trace_id: str | None = None) -> str:
+    async def knowledge_graph_tool(
+        user_input: str, trace_id: str | None = None, session_id: str | None = None
+    ) -> str:
+        if handler.__code__.co_argcount >= 3:
+            return await handler(user_input, trace_id, session_id)
         return await handler(user_input, trace_id)
 
     return server
@@ -100,7 +105,7 @@ async def test_retries_transient_then_succeeds(monkeypatch) -> None:
     gw = make_gateway(stub_server(handler), max_retries=2)
     calls = {"n": 0}
 
-    async def flaky(user_input, trace_id):
+    async def flaky(user_input, trace_id, session_id=None):
         calls["n"] += 1
         if calls["n"] < 3:
             raise httpx.ConnectError("connection refused")
@@ -120,7 +125,7 @@ async def test_gives_up_after_max_retries(monkeypatch) -> None:
     gw = make_gateway(stub_server(handler), max_retries=1)
     calls = {"n": 0}
 
-    async def always_fails(user_input, trace_id):
+    async def always_fails(user_input, trace_id, session_id=None):
         calls["n"] += 1
         raise httpx.ConnectError("down")
 
@@ -130,6 +135,30 @@ async def test_gives_up_after_max_retries(monkeypatch) -> None:
         await gw.query("q")
     assert calls["n"] == 2
     await gw.aclose()
+
+
+async def test_timeout_is_not_retried_but_is_transient(monkeypatch) -> None:
+    breaker = CircuitBreaker(failure_threshold=1, reset_timeout=30.0)
+    gw = make_gateway(stub_server(_ok), max_retries=2, breaker=breaker)
+    calls = {"n": 0}
+
+    async def slow(*args):
+        calls["n"] += 1
+        raise TimeoutError("tool call exceeded budget")
+
+    monkeypatch.setattr(gw, "_call_tool_once", slow)
+
+    with pytest.raises(ServiceUnavailableError):
+        await gw.query("q")
+    assert calls["n"] == 1
+    assert breaker.state is CircuitState.OPEN
+    await gw.aclose()
+
+
+def test_default_call_budget_covers_ml_mcp_run_budget() -> None:
+    from chat_app.settings import ChatSettings
+
+    assert ChatSettings.model_fields["mcp_timeout_seconds"].default >= 90
 
 
 async def test_tool_error_is_not_retried() -> None:
@@ -200,10 +229,23 @@ async def test_sentinel_is_returned_verbatim_and_not_a_failure() -> None:
 
 @pytest.mark.parametrize(
     "text",
-    [NO_KNOWLEDGE_SENTINEL, "  " + NO_KNOWLEDGE_SENTINEL + " ", "[]", "{}", ""],
+    [
+        NO_KNOWLEDGE_SENTINEL,
+        "  " + NO_KNOWLEDGE_SENTINEL + " ",
+        NO_GRAPH_DATA_SENTINEL,
+        NO_GRAPH_DATA_SENTINEL + "\n",
+        "[]",
+        "{}",
+        "",
+    ],
 )
 def test_is_no_knowledge_true(text) -> None:
     assert is_no_knowledge(text) is True
+
+
+def test_sentinels_match_ml_mcp_messages_verbatim() -> None:
+    assert NO_KNOWLEDGE_SENTINEL == "W bazie danych nie ma informacji"
+    assert NO_GRAPH_DATA_SENTINEL == "Brak danych w grafie wiedzy dla tego pytania."
 
 
 @pytest.mark.parametrize("text", ['[{"n": 1}]', "Sala 101 jest w budynku C-13.", "{...}"])
@@ -217,7 +259,7 @@ async def test_circuit_opens_and_fails_fast(monkeypatch) -> None:
 
     calls = {"n": 0}
 
-    async def always_fails(user_input, trace_id):
+    async def always_fails(user_input, trace_id, session_id=None):
         calls["n"] += 1
         raise httpx.ConnectError("mcp down")
 
@@ -245,7 +287,7 @@ async def test_circuit_recovers_after_cooldown(monkeypatch) -> None:
 
     state = {"fail": True}
 
-    async def flaky(user_input, trace_id):
+    async def flaky(user_input, trace_id, session_id=None):
         if state["fail"]:
             raise httpx.ConnectError("mcp down")
         return "recovered"
@@ -265,3 +307,31 @@ async def test_circuit_recovers_after_cooldown(monkeypatch) -> None:
     assert await gw.query("q") == "recovered"  # half-open probe succeeds
     assert breaker.state is CircuitState.CLOSED
     await gw.aclose()
+
+
+async def test_ping_reuses_the_live_session_instead_of_opening_one() -> None:
+    async with make_gateway(stub_server(_ok)) as gw:
+        await gw.query("warm up")
+        client_before = gw._client
+
+        assert await gw.ping(timeout=2.0) is True
+
+        assert gw._client is client_before
+        assert gw._client.is_connected()
+
+
+async def test_ping_on_a_cold_gateway_opens_one_session_that_queries_then_reuse() -> None:
+    async with make_gateway(stub_server(_ok)) as gw:
+        assert await gw.ping(timeout=2.0) is True
+        client = gw._client
+        await gw.query("q")
+        assert gw._client is client
+
+
+async def test_session_id_reaches_the_tool_arguments() -> None:
+    async def handler(user_input, trace_id, session_id):
+        return f"{trace_id}|{session_id}"
+
+    async with make_gateway(stub_server(handler)) as gw:
+        assert await gw.query("q", trace_id="t-1", session_id="s-9") == "t-1|s-9"
+        assert await gw.query("q", trace_id="t-2") == "t-2|None"

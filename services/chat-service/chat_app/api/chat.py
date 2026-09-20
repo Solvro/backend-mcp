@@ -3,7 +3,7 @@ from datetime import datetime
 
 from common.auth import optional_auth
 from common.context import user_id_var
-from common.errors import NotFoundError, ValidationError
+from common.errors import NotFoundError, ServiceUnavailableError, ValidationError
 from common.observability import new_trace_id, start_turn_trace
 from common.rate_limit import daily_quota, rate_limit
 from fastapi import APIRouter, Depends, Request
@@ -158,6 +158,7 @@ def build_chat_router(settings: ChatSettings) -> APIRouter:
                         history=history,
                         gateway=gateway,
                         trace_id=trace_id,
+                        session_id=session_id,
                     )
                     outcome = await apply_semantic_guardrail(
                         guardrail,
@@ -170,6 +171,15 @@ def build_chat_router(settings: ChatSettings) -> APIRouter:
                         source = SOURCE_GUARDRAIL_BLOCKED
                     elif cacheable_turn and _is_cacheable(result):
                         await cache.store(request.message, answer)
+            except ServiceUnavailableError as exc:
+                logger.warning("Knowledge graph unavailable for session %s", session_id)
+                await repo.append_message(
+                    session_id,
+                    MessageRole.ASSISTANT,
+                    DEGRADED_ANSWER,
+                    metadata={"source": SOURCE_ERROR, "trace_id": trace_id},
+                )
+                raise exc
             except Exception:
                 logger.exception("Chat orchestration failed for session %s", session_id)
                 answer = DEGRADED_ANSWER

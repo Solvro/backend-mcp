@@ -1,6 +1,7 @@
 import jwt
 import pytest
 from chat_app.answer import (
+    NO_KNOWLEDGE_REPLY,
     SAFE_REFUSAL,
     AnswerCache,
     AnswerDeps,
@@ -22,9 +23,11 @@ from chat_app.api.chat import (
     get_semantic_guardrail,
 )
 from chat_app.api.sessions import get_repository
+from chat_app.mcp_gateway import NO_GRAPH_DATA_SENTINEL
 from chat_app.sessionizer import ConversationRepository, MessageRole
 from chat_app.settings import ChatSettings
 from common import rate_limit as rate_limit_module
+from common.errors import ServiceUnavailableError
 from common.exceptions_handlers import register_exception_handlers
 from common.redis import QuotaResult
 from cryptography.hazmat.primitives import serialization
@@ -60,9 +63,13 @@ class FakeGateway:
         self.result = result
         self.error = error
         self.calls: list[tuple[str, str | None]] = []
+        self.session_ids: list[str | None] = []
 
-    async def query(self, user_input: str, trace_id: str | None = None) -> str:
+    async def query(
+        self, user_input: str, trace_id: str | None = None, session_id: str | None = None
+    ) -> str:
         self.calls.append((user_input, trace_id))
+        self.session_ids.append(session_id)
         if self.error is not None:
             raise self.error
         return self.result
@@ -281,6 +288,37 @@ async def test_gateway_failure_yields_degraded_answer_but_persists(repo) -> None
     assert history[1].metadata["trace_id"] == body["metadata"]["trace_id"]
 
 
+async def test_open_circuit_surfaces_as_503_with_retry_after(repo) -> None:
+    # An open breaker is not a one-off failure: the client must be able to back off.
+    gateway = FakeGateway(error=ServiceUnavailableError(headers={"Retry-After": "17"}))
+    client, _ = _make_client(repo, gateway=gateway, agent=_answer_agent())
+
+    conv = await repo.create_conversation("u1")
+
+    resp = client.post(
+        "/api/chat",
+        json={"message": "Pytanie?", "session_id": conv.session_id},
+        headers=_auth("u1"),
+    )
+
+    assert resp.status_code == 503
+    assert resp.headers["Retry-After"] == "17"
+    # the turn is still recorded so the conversation is not left dangling
+    history = await repo.get_history(conv.session_id)
+    assert [m.role for m in history] == ["user", "assistant"]
+    assert history[1].metadata["source"] == SOURCE_ERROR
+
+
+async def test_conversation_session_id_is_forwarded_to_the_tool(repo) -> None:
+    gateway = FakeGateway()
+    client, _ = _make_client(repo, gateway=gateway, agent=_answer_agent())
+
+    resp = client.post("/api/chat", json={"message": "Kto prowadzi wykład?"})
+
+    assert resp.status_code == 200
+    assert gateway.session_ids == [resp.json()["session_id"]]
+
+
 async def test_over_quota_is_429_before_any_mcp_work(repo, monkeypatch) -> None:
     async def _denied(scope, identity, *, limit, settings):
         return QuotaResult(
@@ -346,6 +384,19 @@ async def test_answer_cache_miss_generates_then_populates(repo) -> None:
     assert body["metadata"]["source"] == SOURCE_KNOWLEDGE_GRAPH
     assert len(gateway.calls) == 1
     assert await cache.lookup("Gdzie jest sala 301?") == "Odpowiedź."
+
+
+async def test_empty_retrieval_is_not_answered_from_and_never_cached(repo) -> None:
+    cache = _cache()
+    gateway = FakeGateway(result=NO_GRAPH_DATA_SENTINEL)
+    client, _ = _make_client(repo, gateway=gateway, agent=_answer_agent("Nie mam..."), cache=cache)
+
+    resp = client.post("/api/chat", json={"message": "Kto wykłada analizę matematyczną?"})
+
+    assert resp.status_code == 200
+    assert resp.json()["message"] == NO_KNOWLEDGE_REPLY
+    assert len(gateway.calls) == 1
+    assert await cache.lookup("Kto wykłada analizę matematyczną?") is None
 
 
 async def test_answer_cache_hit_skips_pipeline(repo) -> None:

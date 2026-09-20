@@ -160,7 +160,7 @@ services:
       - "8080:80"
       - "8443:443"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost/health"]
+      test: ["CMD", "wget", "-qO-", "http://localhost/health/live"]
       interval: 10s
       timeout: 3s
       retries: 5

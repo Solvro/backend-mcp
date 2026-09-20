@@ -13,6 +13,11 @@ server {
         proxy_read_timeout 10s;
         proxy_pass http://chat_service;
     }
+    location = /health/live {
+        include /etc/nginx/conf.d/proxy_common.inc;
+        proxy_read_timeout 5s;
+        proxy_pass http://chat_service;
+    }
 
     location / {
         return 301 https://$host${PUBLIC_HTTPS_SUFFIX}$request_uri;
@@ -88,6 +93,11 @@ server {
         proxy_read_timeout 10s;
         rewrite ^ /health break;
         proxy_pass http://auth_service;
+    }
+    location = /health/live {
+        include /etc/nginx/conf.d/proxy_common.inc;
+        proxy_read_timeout 5s;
+        proxy_pass http://chat_service;
     }
 
     location / {

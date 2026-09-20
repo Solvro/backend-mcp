@@ -97,3 +97,24 @@ def test_live_ignores_dependencies(monkeypatch) -> None:
 
     assert resp.status_code == 200
     assert resp.json()["status"] == "ok"
+
+
+async def test_mcp_probe_uses_the_shared_gateway_when_given(monkeypatch) -> None:
+    class FakeGateway:
+        def __init__(self) -> None:
+            self.pings: list[float] = []
+
+        async def ping(self, *, timeout: float) -> bool:
+            self.pings.append(timeout)
+            return True
+
+    async def never(*_a, **_k):
+        raise AssertionError("check_mcp must not be used when a gateway is available")
+
+    monkeypatch.setattr(chat_health, "check_mcp", never)
+    gateway = FakeGateway()
+
+    deps = chat_health.build_dependencies(_settings(), gateway=gateway)
+    mcp = next(d for d in deps if d.name == "mcp")
+    assert await mcp.probe() is True
+    assert gateway.pings == [_settings().health_probe_timeout_seconds]

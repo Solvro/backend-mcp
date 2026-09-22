@@ -36,6 +36,8 @@ def _ensure_keys() -> None:
         str(private_key),
     )
     _run("openssl", "pkey", "-in", str(private_key), "-pubout", "-out", str(public_key))
+    for path in (private_key, public_key):
+        path.chmod(0o644)
 
 
 def _wait_for(url: str, *, timeout: float = 120.0) -> None:
@@ -56,14 +58,20 @@ def _wait_for(url: str, *, timeout: float = 120.0) -> None:
 def integration_stack() -> Iterator[None]:
     _ensure_keys()
     try:
-        _run("docker", "compose", "-f", str(COMPOSE_FILE), "up", "-d", "--build", "--wait")
+        _run("docker", "compose", "-f", str(COMPOSE_FILE),
+             "up", "-d", "--build", "--wait")
+        stack_up = True
         _wait_for(f"{AUTH_URL}/health")
         _wait_for(f"{CHAT_URL}/health")
         _wait_for(f"{MAILPIT_URL}/readyz")
         yield
     finally:
+        if not stack_up:
+            subprocess.run(
+                ["docker", "compose", "-f", str(COMPOSE_FILE), "logs", "--no-color"],
+                cwd=ROOT,
+            )
         subprocess.run(
             ["docker", "compose", "-f", str(COMPOSE_FILE), "down", "-v"],
-            cwd=ROOT,
-            check=False,
+            cwd=ROOT, check=False,
         )

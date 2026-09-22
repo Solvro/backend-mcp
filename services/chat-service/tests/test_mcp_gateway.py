@@ -335,3 +335,104 @@ async def test_session_id_reaches_the_tool_arguments() -> None:
     async with make_gateway(stub_server(handler)) as gw:
         assert await gw.query("q", trace_id="t-1", session_id="s-9") == "t-1|s-9"
         assert await gw.query("q", trace_id="t-2") == "t-2|None"
+
+
+async def test_ping_failure_never_tears_down_a_session_a_call_may_be_using(monkeypatch) -> None:
+    async with make_gateway(stub_server(_ok)) as gw:
+        await gw.query("warm up")
+        client = gw._client
+
+        async def hang():
+            await asyncio.sleep(10)
+
+        monkeypatch.setattr(client, "ping", hang)
+
+        with pytest.raises(TimeoutError):
+            await gw.ping(timeout=0.05)
+
+        assert gw._client is client
+        assert client.is_connected()
+        monkeypatch.undo()
+        assert await gw.query("still fine") == "ok"
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "The knowledge graph pipeline exceeded the maximum allowed wait time.",
+        "The language model request exceeded the maximum allowed wait time.",
+        "The language model provider could not be reached.",
+        "The knowledge graph database could not be reached.",
+    ],
+)
+async def test_ml_mcp_outage_tool_errors_are_transient_503s(message) -> None:
+    from fastmcp.exceptions import ToolError
+
+    calls = {"n": 0}
+
+    async def handler(user_input, trace_id):
+        calls["n"] += 1
+        raise ToolError(message)
+
+    breaker = CircuitBreaker(failure_threshold=1, reset_timeout=30.0)
+    gw = make_gateway(stub_server(handler), max_retries=2, breaker=breaker)
+    with pytest.raises(ServiceUnavailableError):
+        await gw.query("q")
+    assert calls["n"] == 1
+    assert breaker.state is CircuitState.OPEN
+    await gw.aclose()
+
+
+async def test_query_failed_tool_error_stays_a_plain_upstream_error() -> None:
+    from fastmcp.exceptions import ToolError
+
+    async def handler(user_input, trace_id):
+        raise ToolError("The knowledge graph query could not be executed.")
+
+    gw = make_gateway(stub_server(handler))
+    with pytest.raises(UpstreamError) as info:
+        await gw.query("q")
+    assert not isinstance(info.value, ServiceUnavailableError)
+    await gw.aclose()
+
+
+@pytest.mark.parametrize("with_breaker", [True, False])
+async def test_transient_503_retry_after_matches_when_the_gateway_itself_retries(
+    monkeypatch, with_breaker
+) -> None:
+    breaker = CircuitBreaker(failure_threshold=5, reset_timeout=30.0) if with_breaker else None
+    gw = make_gateway(stub_server(_ok), max_retries=0, retry_max_delay=2.0, breaker=breaker)
+
+    async def slow(*args):
+        raise TimeoutError("budget exceeded")
+
+    monkeypatch.setattr(gw, "_call_tool_once", slow)
+
+    with pytest.raises(ServiceUnavailableError) as info:
+        await gw.query("q")
+    assert info.value.headers["Retry-After"] == "2"
+    if breaker is not None:
+        assert breaker.state is CircuitState.CLOSED
+    await gw.aclose()
+
+
+async def test_failure_that_opens_the_breaker_advertises_the_open_window(monkeypatch) -> None:
+    clock = FakeClock()
+    breaker = CircuitBreaker(failure_threshold=1, reset_timeout=30.0, time_func=clock)
+    gw = make_gateway(stub_server(_ok), max_retries=0, retry_max_delay=2.0, breaker=breaker)
+
+    async def slow(*args):
+        raise TimeoutError("budget exceeded")
+
+    monkeypatch.setattr(gw, "_call_tool_once", slow)
+
+    with pytest.raises(ServiceUnavailableError) as first:
+        await gw.query("q")
+    assert breaker.state is CircuitState.OPEN
+    assert first.value.headers["Retry-After"] == "30"  # this failure tripped it: full window
+
+    clock.advance(12)
+    with pytest.raises(ServiceUnavailableError) as second:
+        await gw.query("q")
+    assert second.value.headers["Retry-After"] == "18"  # fail-fast path: remaining window
+    await gw.aclose()

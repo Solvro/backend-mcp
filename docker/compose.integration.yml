@@ -1,0 +1,118 @@
+name: ml-mcp-backend-integration
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mcp_backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d mcp_backend"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  mongo:
+    image: mongo:7
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  mailpit:
+    image: axllent/mailpit:latest
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8025/readyz"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "18025:8025"
+
+  mcp-stub:
+    build:
+      context: ./mcp-stub
+      dockerfile: Dockerfile
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8005/health')"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    build:
+      context: ..
+      dockerfile: services/auth-service/Dockerfile
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/mcp_backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  auth-service:
+    build:
+      context: ..
+      dockerfile: services/auth-service/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/mcp_backend
+      REDIS_URL: redis://redis:6379
+      JWT_ALGORITHM: RS256
+      JWT_PRIVATE_KEY_FILE: /run/integration-keys/jwt_private.pem
+      JWT_PUBLIC_KEY_FILE: /run/integration-keys/jwt_public.pem
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_STARTTLS: "false"
+      RATE_LIMIT_ENABLED: "false"
+    volumes:
+      - ./.e2e-keys:/run/integration-keys:ro
+    ports:
+      - "18000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      mailpit:
+        condition: service_healthy
+
+  chat-service:
+    build:
+      context: ..
+      dockerfile: services/chat-service/Dockerfile
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+      REDIS_URL: redis://redis:6379
+      MCP_SERVER_URL: http://mcp-stub:8005/mcp
+      JWT_ALGORITHM: RS256
+      JWT_PUBLIC_KEY_FILE: /run/integration-keys/jwt_public.pem
+      RATE_LIMIT_ENABLED: "false"
+      ANSWER_CACHE_ENABLED: "false"
+    volumes:
+      - ./.e2e-keys:/run/integration-keys:ro
+    ports:
+      - "18001:8000"
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mcp-stub:
+        condition: service_healthy
+
+networks:
+  default:
+    name: ml-mcp-backend-integration

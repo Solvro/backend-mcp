@@ -19,8 +19,17 @@ fmt:
 test:
     uv run pytest -m "not e2e" --cov --cov-report=term-missing
 
+test-integration:
+    uv run pytest -m integration
+
 test-e2e:
     uv run pytest -m e2e
+
+load base_url="http://localhost:8080":
+    k6 run -e BASE_URL={{base_url}} tests/load/load_test.js
+
+load-compose:
+    docker compose -f docker/compose.yml --profile load run --rm k6
 
 e2e: e2e-keys
     docker compose -f docker/compose.e2e.yml up -d --build --wait

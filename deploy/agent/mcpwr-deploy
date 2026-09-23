@@ -2,7 +2,12 @@
 # mcpwr-deploy - pull-based deploy agent for the mcpwr VM.
 # Design: docs/superpowers/specs/2026-09-23-vm-continuous-deployment-design.md (section 7).
 #
-#   mcpwr-deploy <stack> tick            what the systemd timer runs every minute
+#   mcpwr-deploy <stack> tick                what the systemd timer runs every minute
+#   mcpwr-deploy <stack> status              deployed / previous / bad / paused
+#   mcpwr-deploy <stack> deploy <sha>        deploy that commit now (ignores pause and bad marks)
+#   mcpwr-deploy <stack> rollback            back to the previous release, without migrating
+#   mcpwr-deploy <stack> proxies [since]     peers that sent X-Forwarded-For (backend only)
+#   mcpwr-deploy pause | resume              stop / restart automatic deploys of every stack
 #
 # Runs as mcpwr-deploy. Kept bash 3.2 compatible (no arrays): the tests run it on macOS.
 set -euo pipefail
@@ -34,7 +39,10 @@ report() { # <stack> <event> <sha> [detail]
 
 usage() {
   cat >&2 <<'EOF'
-usage: mcpwr-deploy <stack> tick
+usage: mcpwr-deploy <stack> tick|status|rollback
+       mcpwr-deploy <stack> deploy <full commit sha>
+       mcpwr-deploy <stack> proxies [since, default 24h]
+       mcpwr-deploy pause|resume
 EOF
   exit 2
 }
@@ -237,11 +245,82 @@ cmd_tick() {
   deploy_and_handle "$sha" "$digest"
 }
 
+cmd_status() {
+  local value
+  printf 'stack:    %s\n' "$STACK"
+  value=$(state_read "$STACK.deployed")
+  printf 'deployed: %s\n' "${value:--}"
+  value=$(state_read "$STACK.previous")
+  printf 'previous: %s\n' "${value:--}"
+  value=$(state_read "$STACK.bad")
+  printf 'bad:      %s\n' "${value:--}"
+  if [ -f "$STATE/paused" ]; then value=yes; else value=no; fi
+  printf 'paused:   %s\n' "$value"
+}
+
+cmd_deploy() { # <sha>
+  local sha="$1" digest
+  printf '%s' "$sha" | grep -Eq '^[0-9a-f]{40}$' || { err "not a full commit sha: $sha"; exit 2; }
+  with_lock
+  digest=$(registry_digest "$PRIMARY_IMAGE" "sha-$sha") || digest=""
+  [ -n "$digest" ] || { err "no image $PRIMARY_IMAGE:sha-$sha on the registry"; return 1; }
+  deploy_and_handle "$sha" "$digest"
+}
+
+cmd_rollback() {
+  local running previous
+  with_lock
+  previous=$(state_read "$STACK.previous")
+  [ -n "$previous" ] || { err "no previous release of $STACK recorded"; return 1; }
+  running=$(state_read "$STACK.deployed")
+  if deploy_release "${previous%% *}" rollback; then
+    printf '%s\n' "$previous" >"$STATE/$STACK.deployed"
+    printf '%s\n' "$running" >"$STATE/$STACK.previous"
+    ln -sfn "releases/${previous%% *}" "$STACK_DIR/current"
+    report "$STACK" rolled-back "${running%% *}" "running ${previous%% *} (manual)"
+  else
+    err "rollback of $STACK to ${previous%% *} failed"
+    return 1
+  fi
+}
+
+cmd_proxies() { # <since>
+  local nginx
+  nginx=$(docker ps -q \
+    --filter "label=com.docker.compose.project=$PROJECT" \
+    --filter "label=com.docker.compose.service=nginx")
+  [ -n "$nginx" ] || { err "no running nginx in project $PROJECT"; return 1; }
+  docker logs --since "$1" "$nginx" 2>&1 |
+    sed -n 's/.* peer=\([^ ]*\) xff="\([^"]*\)".*/\1 \2/p' |
+    awk '$2 != "-" && $2 != "" { print $1 }' | sort | uniq -c | sort -rn
+}
+
 main() {
+  [ $# -ge 1 ] || usage
+  case "$1" in
+    pause)
+      mkdir -p "$STATE"
+      touch "$STATE/paused"
+      info "automatic deploys paused"
+      return 0
+      ;;
+    resume)
+      rm -f "$STATE/paused"
+      info "automatic deploys resumed"
+      return 0
+      ;;
+  esac
   [ $# -ge 2 ] || usage
   load_stack "$1"
   case "$2" in
     tick) cmd_tick ;;
+    status) cmd_status ;;
+    deploy)
+      [ $# -eq 3 ] || usage
+      cmd_deploy "$3"
+      ;;
+    rollback) cmd_rollback ;;
+    proxies) cmd_proxies "${3:-24h}" ;;
     *) usage ;;
   esac
 }

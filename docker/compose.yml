@@ -174,11 +174,25 @@ services:
       backend:
         ipv4_address: 10.89.0.10
 
+  k6:
+    image: grafana/k6:latest
+    profiles: [load]
+    command: ["run", "/scripts/load_test.js"]
+    environment:
+      BASE_URL: http://nginx
+    volumes:
+      - ../tests/load/load_test.js:/scripts/load_test.js:ro
+    depends_on:
+      nginx:
+        condition: service_started
+    networks: [backend]
+
 secrets:
   tls_cert:
     file: ./.tls/cert.pem
   tls_key:
     file: ./.tls/key.pem
+
 
 volumes:
   pgdata:

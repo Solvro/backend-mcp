@@ -16,6 +16,16 @@ ML_MCP_ENV="$MCPWR_HOME/stacks/ml-mcp/.env"
 
 umask 077
 
+# Every temp file/dir this script creates is tracked here (space-separated: no arrays in
+# bash 3.2, and no path here ever contains a space) and swept up on exit, success or not.
+CLEANUP=""
+track() { CLEANUP="$CLEANUP $1"; }
+cleanup() {
+  # shellcheck disable=SC2086 # CLEANUP is an intentionally word-split list of paths
+  rm -rf $CLEANUP
+}
+trap cleanup EXIT
+
 own() { # <mode> <path>
   chmod "$1" "$2"
   if [ "${MCPWR_SKIP_CHOWN:-0}" != 1 ]; then chown "root:$DEPLOY_GROUP" "$2"; fi
@@ -27,8 +37,13 @@ write_new() { # <path> <mode>: stdin becomes the file, unless the file already e
     printf 'kept    %s\n' "$1"
     return 0
   fi
-  cat >"$1"
-  own "$2" "$1"
+  local tmp
+  tmp=$(mktemp "$(dirname "$1")/.init-secrets.XXXXXX")
+  track "$tmp"
+  cat >"$tmp"
+  own "$2" "$tmp"
+  ln "$tmp" "$1" # fails if $1 now exists (including a dangling symlink): never clobber
+  rm -f "$tmp"
   printf 'created %s\n' "$1"
 }
 
@@ -37,6 +52,26 @@ env_value() { # <file> <KEY>
 }
 
 random_secret() { openssl rand -hex 32 | tr -d '\n'; }
+
+generate() { # <description-for-error-message>: prints a checked random secret, or exits 1
+  local secret
+  secret=$(random_secret) || secret=""
+  if [ -z "$secret" ]; then
+    printf 'could not generate a secret for %s\n' "$1" >&2
+    exit 1
+  fi
+  printf '%s' "$secret"
+}
+
+read_secret() { # <path>: prints a checked non-empty secret file's contents, or exits 1
+  local value
+  value=$(cat "$1")
+  if [ -z "$value" ]; then
+    printf '%s is empty; remove the file and re-run this script\n' "$1" >&2
+    exit 1
+  fi
+  printf '%s' "$value"
+}
 
 mkdir -p "$SECRETS_DIR" "$(dirname "$BACKEND_ENV")" "$(dirname "$ML_MCP_ENV")"
 own 0750 "$SECRETS_DIR"
@@ -47,28 +82,34 @@ if [ -e "$ML_MCP_ENV" ]; then
   printf 'kept    %s\n' "$ML_MCP_ENV"
 else
   example=$(mktemp)
+  track "$example"
   if ! curl -fsS "$ML_MCP_ENV_EXAMPLE_URL" -o "$example"; then
-    rm -f "$example"
     printf 'could not download %s\n' "$ML_MCP_ENV_EXAMPLE_URL" >&2
     exit 1
   fi
   write_new "$ML_MCP_ENV" 0640 <"$example"
-  rm -f "$example"
 fi
 if [ -z "$(env_value "$ML_MCP_ENV" NEO4J_PASSWORD)" ]; then
-  awk -v pw="$(random_secret)" '
-    /^NEO4J_PASSWORD=/ { print "NEO4J_PASSWORD=" pw; done = 1; next }
+  neo4j_pw=$(generate "NEO4J_PASSWORD in $ML_MCP_ENV")
+  ml_env_new=$(mktemp "$(dirname "$ML_MCP_ENV")/.init-secrets.XXXXXX")
+  track "$ml_env_new"
+  NEO4J_PW="$neo4j_pw" awk '
+    /^NEO4J_PASSWORD=/ { print "NEO4J_PASSWORD=" ENVIRON["NEO4J_PW"]; done = 1; next }
     { print }
-    END { if (!done) print "NEO4J_PASSWORD=" pw }
-  ' "$ML_MCP_ENV" >"$ML_MCP_ENV.new"
-  cat "$ML_MCP_ENV.new" >"$ML_MCP_ENV" # keeps the file's mode and owner
-  rm -f "$ML_MCP_ENV.new"
+    END { if (!done) print "NEO4J_PASSWORD=" ENVIRON["NEO4J_PW"] }
+  ' "$ML_MCP_ENV" >"$ml_env_new"
+  own 0640 "$ml_env_new"
+  mv -f "$ml_env_new" "$ML_MCP_ENV" # atomic: never leaves a truncated file if killed mid-write
   printf 'set     NEO4J_PASSWORD in %s\n' "$ML_MCP_ENV"
 fi
 
-# 2. Database passwords, and the connection URLs built from them.
+# 2. Database passwords, and the connection URLs built from them. Each secret is generated
+# and checked in its own statement (so a failing generator, not just a failing pipeline, is
+# caught) before it ever reaches write_new, and read back checked before use so an existing
+# empty file from an old failed run is refused rather than silently trusted.
 for name in postgres_password mongo_root_password redis_password; do
-  random_secret | write_new "$SECRETS_DIR/$name" 0440
+  pw=$(generate "$SECRETS_DIR/$name") # its own statement: a failed generator must not reach write_new
+  printf '%s' "$pw" | write_new "$SECRETS_DIR/$name" 0440
 done
 pg_user=$(env_value "$BACKEND_ENV" POSTGRES_USER)
 pg_db=$(env_value "$BACKEND_ENV" POSTGRES_DB)
@@ -77,11 +118,14 @@ if [ -z "$pg_user" ] || [ -z "$pg_db" ] || [ -z "$mongo_user" ]; then
   printf 'set POSTGRES_USER, POSTGRES_DB and MONGO_ROOT_USER in %s first\n' "$BACKEND_ENV" >&2
   exit 1
 fi
-printf 'postgresql+asyncpg://%s:%s@postgres:5432/%s' "$pg_user" "$(cat "$SECRETS_DIR/postgres_password")" "$pg_db" |
+postgres_password=$(read_secret "$SECRETS_DIR/postgres_password")
+printf 'postgresql+asyncpg://%s:%s@postgres:5432/%s' "$pg_user" "$postgres_password" "$pg_db" |
   write_new "$SECRETS_DIR/database_url" 0440
-printf 'mongodb://%s:%s@mongo:27017/?authSource=admin' "$mongo_user" "$(cat "$SECRETS_DIR/mongo_root_password")" |
+mongo_root_password=$(read_secret "$SECRETS_DIR/mongo_root_password")
+printf 'mongodb://%s:%s@mongo:27017/?authSource=admin' "$mongo_user" "$mongo_root_password" |
   write_new "$SECRETS_DIR/mongo_uri" 0440
-printf 'redis://:%s@redis:6379' "$(cat "$SECRETS_DIR/redis_password")" |
+redis_password=$(read_secret "$SECRETS_DIR/redis_password")
+printf 'redis://:%s@redis:6379' "$redis_password" |
   write_new "$SECRETS_DIR/redis_url" 0440
 
 # 3. The RS256 signing pair; the "previous" public key stays empty until the first rotation.
@@ -94,6 +138,7 @@ elif [ -e "$private" ] || [ -e "$public" ]; then
   exit 1
 else
   keys=$(mktemp -d)
+  track "$keys"
   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$keys/private.pem" 2>/dev/null
   openssl pkey -in "$keys/private.pem" -pubout -out "$keys/public.pem" 2>/dev/null
   write_new "$private" 0440 <"$keys/private.pem"

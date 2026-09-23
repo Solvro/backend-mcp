@@ -145,3 +145,76 @@ def test_failed_example_download_leaves_no_half_written_file(layout, tmp_path):
 
     assert result.returncode != 0
     assert not layout.ml_env.exists()
+
+
+def test_generation_failure_leaves_no_partial_secret(layout, tmp_path):
+    # A NEO4J_PASSWORD already set skips the earlier generator call, so the fake openssl below
+    # is first hit by the postgres_password loop, matching the reviewer's reproduction.
+    layout.ml_env.parent.mkdir(parents=True)
+    layout.ml_env.write_text("NEO4J_PASSWORD=chosen-by-a-human\n")
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    fake_openssl = fake_bin / "openssl"
+    fake_openssl.write_text("#!/bin/sh\nexit 1\n")
+    fake_openssl.chmod(0o755)
+
+    failing = layout.run(PATH=f"{fake_bin}:{os.environ['PATH']}")
+
+    assert failing.returncode != 0
+    assert not (layout.secrets / "postgres_password").exists()
+
+    result = layout.run()
+
+    assert result.returncode == 0, result.stderr
+    assert HEX64.match((layout.secrets / "postgres_password").read_text())
+    pg_password = (layout.secrets / "postgres_password").read_text()
+    assert pg_password in (layout.secrets / "database_url").read_text()
+
+
+def test_missing_url_file_is_rebuilt_without_rotating_the_password(layout):
+    assert layout.run().returncode == 0
+    pg_password = (layout.secrets / "postgres_password").read_text()
+    (layout.secrets / "database_url").unlink()
+
+    result = layout.run()
+
+    assert result.returncode == 0, result.stderr
+    assert (layout.secrets / "postgres_password").read_text() == pg_password
+    assert pg_password in (layout.secrets / "database_url").read_text()
+
+
+def test_existing_empty_password_is_refused_not_silently_kept(layout):
+    layout.secrets.mkdir(parents=True)
+    (layout.secrets / "redis_password").write_text("")
+
+    result = layout.run()
+
+    assert result.returncode != 0
+    assert str(layout.secrets / "redis_password") in result.stderr
+    assert not (layout.secrets / "redis_url").exists()
+
+
+def test_only_one_half_of_jwt_pair_is_refused(layout):
+    layout.secrets.mkdir(parents=True)
+    (layout.secrets / "jwt_private_key.pem").write_text("not a real key\n")
+
+    result = layout.run()
+
+    assert result.returncode != 0
+    assert not (layout.secrets / "jwt_public_key.pem").exists()
+    assert (layout.secrets / "jwt_private_key.pem").read_text() == "not a real key\n"
+
+
+def test_existing_ml_env_with_empty_neo4j_password_is_filled_in_place(layout):
+    layout.ml_env.parent.mkdir(parents=True)
+    layout.ml_env.write_text(
+        "NEO4J_URI=bolt://neo4j:7687\nNEO4J_USER=neo4j\nNEO4J_PASSWORD=\nOPENAI_API_KEY=set-by-human\n"
+    )
+
+    assert layout.run().returncode == 0
+
+    text = layout.ml_env.read_text()
+    assert "NEO4J_URI=bolt://neo4j:7687" in text
+    assert "NEO4J_USER=neo4j" in text
+    assert "OPENAI_API_KEY=set-by-human" in text
+    assert HEX64.match(env_value(layout.ml_env, "NEO4J_PASSWORD"))

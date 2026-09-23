@@ -120,20 +120,30 @@ health_gate() {
   return 1
 }
 
-deploy_release() { # <sha> -> 0, PREFLIGHT, MIGRATE_FAILED or SWAP_FAILED
-  local sha="$1" dir="$STACK_DIR/releases/$1" network
+deploy_release() { # <sha> <forward|rollback> -> 0, PREFLIGHT, MIGRATE_FAILED or SWAP_FAILED
+  local sha="$1" mode="$2" dir="$STACK_DIR/releases/$1" network services
   fetch_release "$sha" || { warn "fetching $sha from $REPO_URL failed"; return "$PREFLIGHT"; }
   for network in $REQUIRED_NETWORKS; do
     docker network inspect "$network" >/dev/null 2>&1 ||
       { warn "required network $network does not exist yet"; return "$PREFLIGHT"; }
   done
   compose "$dir" "$sha" pull --quiet || { warn "pulling sha-$sha failed"; return "$PREFLIGHT"; }
-  if [ -n "$MIGRATE_SERVICE" ]; then
-    compose "$dir" "$sha" run --rm "$MIGRATE_SERVICE" ||
-      { err "migration of $sha failed"; return "$MIGRATE_FAILED"; }
+  if [ "$mode" = forward ]; then
+    if [ -n "$MIGRATE_SERVICE" ]; then
+      compose "$dir" "$sha" run --rm "$MIGRATE_SERVICE" ||
+        { err "migration of $sha failed"; return "$MIGRATE_FAILED"; }
+    fi
+    compose "$dir" "$sha" up -d --no-build --remove-orphans --wait --wait-timeout "$MCPWR_WAIT_TIMEOUT" ||
+      return "$SWAP_FAILED"
+  else
+    # A rollback never re-runs the old migrate one-shot: the schema may already be ahead of it,
+    # alembic would fail on the unknown revision, and auth-service (which depends on it) with it.
+    services=$(compose "$dir" "$sha" config --services) || return "$SWAP_FAILED"
+    services=$(printf '%s\n' "$services" | grep -vx "${MIGRATE_SERVICE:-}" || true)
+    # shellcheck disable=SC2086 # one word per service name
+    compose "$dir" "$sha" up -d --no-build --no-deps --wait --wait-timeout "$MCPWR_WAIT_TIMEOUT" $services ||
+      return "$SWAP_FAILED"
   fi
-  compose "$dir" "$sha" up -d --no-build --remove-orphans --wait --wait-timeout "$MCPWR_WAIT_TIMEOUT" ||
-    return "$SWAP_FAILED"
   health_gate || return "$SWAP_FAILED"
 }
 
@@ -168,19 +178,41 @@ record_success() { # <sha> <digest>
 }
 
 deploy_and_handle() { # <sha> <digest>
-  local sha="$1" digest="$2" rc=0
+  local sha="$1" digest="$2" rc=0 running
   report "$STACK" started "$sha"
-  deploy_release "$sha" || rc=$?
-  if [ "$rc" -eq 0 ]; then
-    record_success "$sha" "$digest"
-    report "$STACK" success "$sha"
-    return 0
-  fi
-  if [ "$rc" -eq "$PREFLIGHT" ]; then
-    report "$STACK" preflight-failed "$sha" "will retry"
+  deploy_release "$sha" forward || rc=$?
+  case "$rc" in
+    0)
+      record_success "$sha" "$digest"
+      report "$STACK" success "$sha"
+      return 0
+      ;;
+    "$PREFLIGHT")
+      report "$STACK" preflight-failed "$sha" "will retry"
+      return 1
+      ;;
+    "$MIGRATE_FAILED")
+      printf '%s\n' "$digest" >"$STATE/$STACK.bad"
+      report "$STACK" failure "$sha" "migration failed; the running release was not touched"
+      return 1
+      ;;
+  esac
+  # The swap or the health gate failed: the new release is (partly) running.
+  printf '%s\n' "$digest" >"$STATE/$STACK.bad"
+  running=$(state_read "$STACK.deployed")
+  if [ -z "$running" ]; then
+    report "$STACK" failure "$sha" "first deploy failed; nothing to roll back to"
     return 1
   fi
-  err "deploy of $sha failed (code $rc)"
+  running="${running%% *}"
+  err "rolling $STACK back to $running"
+  if deploy_release "$running" rollback; then
+    ln -sfn "releases/$running" "$STACK_DIR/current"
+    report "$STACK" rolled-back "$sha" "running $running again"
+  else
+    err "ROLLBACK OF $STACK TO $running FAILED - manual action needed"
+    report "$STACK" rollback-failed "$sha" "manual action needed"
+  fi
   return 1
 }
 

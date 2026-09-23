@@ -1,3 +1,8 @@
+# Production overlay. On the VM the deploy agent runs (docs/deploy.md):
+#   RELEASE_TAG=sha-<commit> docker compose -p backend-mcp --env-file .env.prod \
+#     -f docker/compose.yml -f docker/compose.prod.yml up -d --no-build --wait
+# Images come from GHCR; nothing is built on the VM.
+
 x-logging: &logging
   driver: json-file
   options:
@@ -48,12 +53,15 @@ services:
         limits: { cpus: "1.0", memory: 512m }
 
   migrate:
+    image: ghcr.io/solvro/backend-mcp-auth:${RELEASE_TAG:?set by the deploy agent}
     logging: *logging
     environment: !override
       DATABASE_URL_FILE: /run/secrets/database_url
     secrets: [database_url]
 
   auth-service:
+    image: ghcr.io/solvro/backend-mcp-auth:${RELEASE_TAG:?set by the deploy agent}
+    volumes: !reset []   # the base file mounts dev keys from docker/.e2e-keys
     restart: *restart
     logging: *logging
     ports: !reset []
@@ -62,7 +70,8 @@ services:
     stop_grace_period: 20s
     environment: !override
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      FORWARDED_ALLOW_IPS: 10.89.0.10
+      # nginx (/health) and the frontend BFF (every API call) - see gateway/nginx/templates.proxy.
+      FORWARDED_ALLOW_IPS: "10.89.0.10,10.89.0.11"
       DATABASE_URL_FILE: /run/secrets/database_url
       REDIS_URL_FILE: /run/secrets/redis_url
       JWT_ALGORITHM: RS256
@@ -92,6 +101,8 @@ services:
         reservations: { memory: 256m }
 
   chat-service:
+    image: ghcr.io/solvro/backend-mcp-chat:${RELEASE_TAG:?set by the deploy agent}
+    volumes: !reset []   # the base file mounts dev keys from docker/.e2e-keys
     restart: *restart
     logging: *logging
     ports: !reset []
@@ -100,7 +111,8 @@ services:
     stop_grace_period: 30s   # let an in-flight answer finish
     environment: !override
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      FORWARDED_ALLOW_IPS: 10.89.0.10
+      # nginx (/health) and the frontend BFF (every API call) - see gateway/nginx/templates.proxy.
+      FORWARDED_ALLOW_IPS: "10.89.0.10,10.89.0.11"
       MONGO_URI_FILE: /run/secrets/mongo_uri
       REDIS_URL_FILE: /run/secrets/redis_url
       MCP_SERVER_URL: ${MCP_SERVER_URL:-http://mcp-server:8005/mcp}
@@ -160,3 +172,12 @@ secrets:
   smtp_pass:                { file: "${SECRETS_DIR:-/etc/ml-mcp/secrets}/smtp_pass" }
   tls_cert:                 { file: "${SECRETS_DIR:-/etc/ml-mcp/secrets}/tls_cert.pem" }
   tls_key:                  { file: "${SECRETS_DIR:-/etc/ml-mcp/secrets}/tls_key.pem" }
+
+networks:
+  backend:
+    ipam: !override
+      config:
+        - subnet: 10.89.0.0/24
+          # Dynamic addresses come from the upper half only, so the fixed ones below it
+          # (nginx 10.89.0.10, frontend 10.89.0.11) are never handed to another container.
+          ip_range: 10.89.0.128/25

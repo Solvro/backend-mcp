@@ -157,3 +157,82 @@ jobs:
 
           asyncio.run(main())
           PY
+
+  publish:
+    name: Publish images
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: [test, build-check, migrations]
+    permissions:
+      contents: read
+      packages: write
+    # Queue publishes instead of running them side by side: an older run finishing last would
+    # move `main` back to an older commit.
+    concurrency:
+      group: publish-main
+      cancel-in-progress: false
+    env:
+      REGISTRY: ghcr.io/solvro
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push auth-service
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/auth-service/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.REGISTRY }}/backend-mcp-auth:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=backend-mcp-auth
+          cache-to: type=gha,mode=max,scope=backend-mcp-auth
+
+      - name: Build and push chat-service
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/chat-service/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.REGISTRY }}/backend-mcp-chat:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=backend-mcp-chat
+          cache-to: type=gha,mode=max,scope=backend-mcp-chat
+
+      - name: Check the images carry no keys or env files
+        run: |
+          for image in backend-mcp-auth backend-mcp-chat; do
+            ref="$REGISTRY/$image:sha-$GITHUB_SHA"
+            docker pull -q "$ref" >/dev/null
+            found=$(docker run --rm --entrypoint sh "$ref" -c \
+              'find /app -path /app/.venv -prune -o \( -name "*.pem" -o -name "*.key" -o -name ".env" -o -name ".env.*" \) -print')
+            if [ -n "$found" ]; then
+              echo "::error::$image contains key or env files:"
+              echo "$found"
+              exit 1
+            fi
+          done
+
+      # Last, so the deploy agent never sees a `main` whose sibling image is missing.
+      - name: Move the main tags
+        run: |
+          for image in backend-mcp-auth backend-mcp-chat; do
+            docker buildx imagetools create -t "$REGISTRY/$image:main" "$REGISTRY/$image:sha-$GITHUB_SHA"
+          done

@@ -41,6 +41,7 @@ jobs:
 
       - name: Shellcheck deploy scripts
         run: |
+          # shellcheck disable=SC2046 # one argument per script; no paths contain spaces
           docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:stable \
             $(find deploy -type f \( -name '*.sh' -o -name 'mcpwr-deploy' \) | sort)
 

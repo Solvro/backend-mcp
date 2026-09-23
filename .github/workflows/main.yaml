@@ -39,6 +39,11 @@ jobs:
       - name: Ruff
         run: uv run ruff check .
 
+      - name: Shellcheck deploy scripts
+        run: |
+          docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:stable \
+            $(find deploy -type f \( -name '*.sh' -o -name 'mcpwr-deploy' \) | sort)
+
   test:
     name: Unit/Integration tests
     runs-on: ubuntu-latest

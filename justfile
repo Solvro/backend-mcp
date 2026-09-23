@@ -12,6 +12,10 @@ lint:
     uv run python scripts/check_env_example.py
     uv run python scripts/check_prod_secrets.py
 
+# Shell scripts under deploy/ (needs Docker for the shellcheck image).
+lint-sh:
+    docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:stable $(find deploy -type f \( -name '*.sh' -o -name 'mcpwr-deploy' \) | sort)
+
 fmt:
     uv run ruff format .
     uv run ruff check . --fix

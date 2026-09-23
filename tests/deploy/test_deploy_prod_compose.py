@@ -54,3 +54,20 @@ def test_dynamic_addresses_never_collide_with_the_fixed_ones(config):
 
 def test_whole_stack_policy_check_passes(checker):
     assert checker.main() == 0
+
+
+def test_nginx_is_the_plain_http_edge_behind_coolify(services):
+    nginx = services["nginx"]
+
+    assert [(p["published"], p["target"]) for p in nginx["ports"]] == [("80", 80)]
+    assert not nginx.get("secrets")
+    mounts = {v["target"]: v["source"] for v in nginx["volumes"]}
+    assert mounts["/etc/nginx/templates"].endswith("gateway/nginx/templates.proxy")
+    assert mounts["/etc/nginx/nginx.conf"].endswith("gateway/nginx/nginx.conf")
+    assert nginx["environment"] == {
+        "TRUSTED_PROXY_CIDR": "127.0.0.1/32",
+        # `docker compose config` renders its canonical, re-parseable form: a literal "$" is
+        # doubled to "$$" (matches the pre-existing dev SERVER_NAME/... filter rendering the
+        # same way). The container itself gets a single "$" once compose resolves env vars.
+        "NGINX_ENVSUBST_FILTER": "^TRUSTED_PROXY_CIDR$$",
+    }

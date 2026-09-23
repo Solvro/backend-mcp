@@ -145,13 +145,17 @@ services:
     logging: *logging
     read_only: true
     tmpfs: [/var/cache/nginx, /var/run, /etc/nginx/conf.d]   # envsubst writes rendered confs here
+    # Behind Coolify, which terminates TLS for mcpwr.solvro.pl: plain HTTP on :80, no certs.
+    volumes: !override
+      - ../gateway/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../gateway/nginx/templates.proxy:/etc/nginx/templates:ro
+    secrets: !reset []
     ports: !override
       - "80:80"
-      - "443:443"
-    environment:
-      SERVER_NAME: ${SERVER_NAME:?set in .env.prod}
-      CORS_ALLOWED_ORIGIN: ${CORS_ALLOWED_ORIGIN:?set in .env.prod}
-      PUBLIC_HTTPS_SUFFIX: ""
+    environment: !override
+      # Coolify's proxy address(es), the only peers allowed to set X-Forwarded-For.
+      TRUSTED_PROXY_CIDR: ${TRUSTED_PROXY_CIDR:-127.0.0.1/32}
+      NGINX_ENVSUBST_FILTER: ^TRUSTED_PROXY_CIDR$$
     deploy:
       resources:
         limits: { cpus: "0.5", memory: 128m }
@@ -170,8 +174,6 @@ secrets:
   google_api_key:           { file: "${SECRETS_DIR:-/etc/ml-mcp/secrets}/google_api_key" }
   langfuse_secret_key:      { file: "${SECRETS_DIR:-/etc/ml-mcp/secrets}/langfuse_secret_key" }
   smtp_pass:                { file: "${SECRETS_DIR:-/etc/ml-mcp/secrets}/smtp_pass" }
-  tls_cert:                 { file: "${SECRETS_DIR:-/etc/ml-mcp/secrets}/tls_cert.pem" }
-  tls_key:                  { file: "${SECRETS_DIR:-/etc/ml-mcp/secrets}/tls_key.pem" }
 
 networks:
   backend:

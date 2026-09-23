@@ -1,0 +1,57 @@
+# Production edge behind Solvro's Coolify proxy, which terminates TLS for mcpwr.solvro.pl.
+# Rendered by envsubst at container start; only ${TRUSTED_PROXY_CIDR} is substituted
+# (NGINX_ENVSUBST_FILTER in docker/compose.prod.yml), every other $var is nginx's.
+# Public surface: the frontend (/, /bff/) and /health. The backend APIs are reachable only from
+# the frontend's BFF over the internal network.
+
+# Docker's embedded DNS. The frontend is another compose project that may be absent or
+# mid-deploy, so it is resolved per request instead of once at startup.
+resolver 127.0.0.11 valid=10s ipv6=off;
+
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+
+    # Only Coolify's proxy may name the client. The default (127.0.0.1/32) trusts no one; set
+    # TRUSTED_PROXY_CIDR from `mcpwr-deploy backend proxies` once Coolify is connected.
+    set_real_ip_from  ${TRUSTED_PROXY_CIDR};
+    real_ip_header    X-Forwarded-For;
+    real_ip_recursive on;
+
+    # Every add_header for this vhost lives here: nginx does not inherit add_header into a
+    # location that sets its own. HSTS is honoured because browsers get it over Coolify's HTTPS.
+    add_header X-Frame-Options           "DENY"                                 always;
+    add_header X-Content-Type-Options    "nosniff"                              always;
+    add_header Referrer-Policy           "strict-origin-when-cross-origin"      always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains"  always;
+
+    set $frontend http://frontend:3000;
+
+    # The BFF: a chat answer can take chat-service's full 180 s budget.
+    location /bff/ {
+        include /etc/nginx/conf.d/proxy_common.inc;
+        proxy_read_timeout 185s;
+        proxy_buffering    off;
+        proxy_pass $frontend;
+    }
+
+    location = /health {
+        include /etc/nginx/conf.d/proxy_common.inc;
+        proxy_read_timeout 10s;
+        proxy_pass http://chat_service;
+    }
+    location = /health/live {
+        include /etc/nginx/conf.d/proxy_common.inc;
+        proxy_read_timeout 5s;
+        proxy_pass http://chat_service;
+    }
+
+    # Pages, including the email-link targets /auth/verify and /auth/reset-password. Anything
+    # else (/api/*, /auth/login, /.well-known/jwks.json, /metrics) is simply a frontend 404.
+    location / {
+        include /etc/nginx/conf.d/proxy_common.inc;
+        proxy_read_timeout 30s;
+        proxy_pass $frontend;
+    }
+}

@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# mcpwr-deploy - pull-based deploy agent for the mcpwr VM.
+# Design: docs/superpowers/specs/2026-09-23-vm-continuous-deployment-design.md (section 7).
+#
+#   mcpwr-deploy <stack> tick            what the systemd timer runs every minute
+#
+# Runs as mcpwr-deploy. Kept bash 3.2 compatible (no arrays): the tests run it on macOS.
+set -euo pipefail
+
+MCPWR_HOME="${MCPWR_HOME:-/opt/mcpwr}"
+MCPWR_STACKS_DIR="${MCPWR_STACKS_DIR:-$MCPWR_HOME/agent/stacks}"
+MCPWR_REGISTRY="${MCPWR_REGISTRY:-https://ghcr.io}"
+MCPWR_IMAGE_HOST="${MCPWR_IMAGE_HOST:-ghcr.io}"
+MCPWR_HEALTH_BASE="${MCPWR_HEALTH_BASE:-http://127.0.0.1}"
+MCPWR_WAIT_TIMEOUT="${MCPWR_WAIT_TIMEOUT:-180}"
+MCPWR_HEALTH_ATTEMPTS="${MCPWR_HEALTH_ATTEMPTS:-10}"
+MCPWR_KEEP_RELEASES="${MCPWR_KEEP_RELEASES:-5}"
+STATE="$MCPWR_HOME/state"
+
+# journald reads a leading <N> as the syslog priority.
+info() { printf '<6>%s\n' "$*" >&2; }
+warn() { printf '<4>%s\n' "$*" >&2; }
+err() { printf '<3>%s\n' "$*" >&2; }
+
+# The one place a GitHub Deployments integration hooks in later (spec F1).
+report() { # <stack> <event> <sha> [detail]
+  info "report stack=$1 event=$2 sha=$3${4:+ detail=$4}"
+}
+
+usage() {
+  cat >&2 <<'EOF'
+usage: mcpwr-deploy <stack> tick
+EOF
+  exit 2
+}
+
+load_stack() { # <stack>
+  STACK="$1"
+  local conf="$MCPWR_STACKS_DIR/$STACK.conf"
+  [ -f "$conf" ] || { err "unknown stack: $STACK"; exit 2; }
+  REPO_URL="" SPARSE_PATHS="" PROJECT="" PRIMARY_IMAGE="" IMAGES="" COMPOSE_FILES=""
+  ENV_FILE="" REQUIRED_NETWORKS="" MIGRATE_SERVICE="" HEALTH_URL=""
+  # shellcheck source=/dev/null
+  . "$conf"
+  STACK_DIR="$MCPWR_HOME/stacks/$STACK"
+  mkdir -p "$STACK_DIR/releases" "$STATE"
+}
+
+with_lock() {
+  exec 9>"$STATE/deploy.lock"
+  if ! flock -n 9; then
+    info "another deploy holds the lock; skipping"
+    exit 0
+  fi
+}
+
+state_read() { # <file> -> its content, or nothing
+  if [ -f "$STATE/$1" ]; then cat "$STATE/$1"; fi
+}
+
+registry_digest() { # <image path, e.g. solvro/backend-mcp-auth> <tag> -> digest
+  local image="$1" tag="$2" token
+  token=$(curl -fsS "$MCPWR_REGISTRY/token?scope=repository:$image:pull" | jq -r '.token') || return 1
+  curl -fsSI \
+    -H "Authorization: Bearer $token" \
+    -H "Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json" \
+    "$MCPWR_REGISTRY/v2/$image/manifests/$tag" |
+    tr -d '\r' | awk 'tolower($1) == "docker-content-digest:" { print $2 }'
+}
+
+deploy_and_handle() { # <sha> <digest> - replaced in Task A2
+  err "deploying is not implemented yet"
+  return 1
+}
+
+resolve_sha() { # <digest> - replaced in Task A2
+  return 1
+}
+
+cmd_tick() {
+  with_lock
+  if [ -f "$STATE/paused" ]; then
+    info "automatic deploys are paused; not deploying $STACK"
+    return 0
+  fi
+  local digest deployed bad sha
+  digest=$(registry_digest "$PRIMARY_IMAGE" main) || digest=""
+  if [ -z "$digest" ]; then
+    warn "could not resolve $PRIMARY_IMAGE:main"
+    return 1
+  fi
+  deployed=$(state_read "$STACK.deployed")
+  bad=$(state_read "$STACK.bad")
+  if [ "${deployed#* }" = "$digest" ] || [ "$bad" = "$digest" ]; then
+    return 0
+  fi
+  sha=$(resolve_sha "$digest") || { warn "could not read the revision of $digest"; return 1; }
+  deploy_and_handle "$sha" "$digest"
+}
+
+main() {
+  [ $# -ge 2 ] || usage
+  load_stack "$1"
+  case "$2" in
+    tick) cmd_tick ;;
+    *) usage ;;
+  esac
+}
+
+main "$@"

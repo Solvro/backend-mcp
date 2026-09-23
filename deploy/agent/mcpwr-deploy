@@ -17,6 +17,11 @@ MCPWR_HEALTH_ATTEMPTS="${MCPWR_HEALTH_ATTEMPTS:-10}"
 MCPWR_KEEP_RELEASES="${MCPWR_KEEP_RELEASES:-5}"
 STATE="$MCPWR_HOME/state"
 
+# deploy_release outcomes
+PREFLIGHT=10      # nothing running changed; retry next tick
+MIGRATE_FAILED=11 # nothing swapped; the release itself is broken
+SWAP_FAILED=20    # the new release is (partly) running and failed
+
 # journald reads a leading <N> as the syslog priority.
 info() { printf '<6>%s\n' "$*" >&2; }
 warn() { printf '<4>%s\n' "$*" >&2; }
@@ -68,12 +73,114 @@ registry_digest() { # <image path, e.g. solvro/backend-mcp-auth> <tag> -> digest
     tr -d '\r' | awk 'tolower($1) == "docker-content-digest:" { print $2 }'
 }
 
-deploy_and_handle() { # <sha> <digest> - replaced in Task A2
-  err "deploying is not implemented yet"
+resolve_sha() { # <digest> -> the commit sha the image was built from
+  local ref="$MCPWR_IMAGE_HOST/$PRIMARY_IMAGE@$1" sha
+  docker pull -q "$ref" >/dev/null || return 1
+  sha=$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$ref") || return 1
+  # The sha becomes a directory name and a git ref: accept nothing but 40 lowercase hex digits.
+  printf '%s' "$sha" | grep -Eq '^[0-9a-f]{40}$' || return 1
+  printf '%s\n' "$sha"
+}
+
+fetch_release() { # <sha>: shallow sparse checkout of that commit into releases/<sha>
+  local sha="$1" dir="$STACK_DIR/releases/$1"
+  [ -f "$dir/.mcpwr-ok" ] && return 0
+  rm -rf "$dir"
+  mkdir -p "$dir"
+  git -C "$dir" init -q || return 1
+  git -C "$dir" remote add origin "$REPO_URL" || return 1
+  # shellcheck disable=SC2086 # SPARSE_PATHS is a space-separated list
+  git -C "$dir" sparse-checkout set $SPARSE_PATHS || return 1
+  git -C "$dir" fetch -q --depth 1 origin "$sha" || return 1
+  git -C "$dir" checkout -q FETCH_HEAD || return 1
+  touch "$dir/.mcpwr-ok"
+}
+
+compose() { # <release dir> <sha> <compose args...>
+  local dir="$1" sha="$2" files="" env_file="" f
+  shift 2
+  for f in $COMPOSE_FILES; do files="$files -f $dir/$f"; done
+  if [ -n "$ENV_FILE" ]; then env_file="--env-file $ENV_FILE"; fi
+  # shellcheck disable=SC2086 # word splitting of $env_file/$files is intended; no paths contain spaces
+  RELEASE_TAG="sha-$sha" docker compose -p "$PROJECT" $env_file $files "$@"
+}
+
+health_gate() {
+  [ -n "$HEALTH_URL" ] || return 0
+  local attempt=1 body="" status=""
+  while [ "$attempt" -le "$MCPWR_HEALTH_ATTEMPTS" ]; do
+    if body=$(curl -fsS -m 10 "$MCPWR_HEALTH_BASE$HEALTH_URL"); then
+      status=$(printf '%s' "$body" | jq -r '.status // empty' 2>/dev/null || true)
+      case "$status" in ok | degraded) return 0 ;; esac
+    fi
+    attempt=$((attempt + 1))
+    sleep 3
+  done
+  err "health gate failed on $HEALTH_URL (last status: ${status:-none})"
   return 1
 }
 
-resolve_sha() { # <digest> - replaced in Task A2
+deploy_release() { # <sha> -> 0, PREFLIGHT, MIGRATE_FAILED or SWAP_FAILED
+  local sha="$1" dir="$STACK_DIR/releases/$1" network
+  fetch_release "$sha" || { warn "fetching $sha from $REPO_URL failed"; return "$PREFLIGHT"; }
+  for network in $REQUIRED_NETWORKS; do
+    docker network inspect "$network" >/dev/null 2>&1 ||
+      { warn "required network $network does not exist yet"; return "$PREFLIGHT"; }
+  done
+  compose "$dir" "$sha" pull --quiet || { warn "pulling sha-$sha failed"; return "$PREFLIGHT"; }
+  if [ -n "$MIGRATE_SERVICE" ]; then
+    compose "$dir" "$sha" run --rm "$MIGRATE_SERVICE" ||
+      { err "migration of $sha failed"; return "$MIGRATE_FAILED"; }
+  fi
+  compose "$dir" "$sha" up -d --no-build --remove-orphans --wait --wait-timeout "$MCPWR_WAIT_TIMEOUT" ||
+    return "$SWAP_FAILED"
+  health_gate || return "$SWAP_FAILED"
+}
+
+prune_releases() { # keep the newest MCPWR_KEEP_RELEASES, and always current + previous
+  local current previous old image
+  current=$(state_read "$STACK.deployed")
+  current="${current%% *}"
+  previous=$(state_read "$STACK.previous")
+  previous="${previous%% *}"
+  # shellcheck disable=SC2012 # names are 40-hex shas
+  ls -1t "$STACK_DIR/releases" | tail -n +"$((MCPWR_KEEP_RELEASES + 1))" | while read -r old; do
+    if [ "$old" = "$current" ] || [ "$old" = "$previous" ]; then continue; fi
+    rm -rf "${STACK_DIR:?}/releases/$old"
+    for image in $IMAGES; do
+      docker image rm "$MCPWR_IMAGE_HOST/$image:sha-$old" >/dev/null 2>&1 || true
+    done
+    info "pruned release $old"
+  done
+}
+
+record_success() { # <sha> <digest>
+  local sha="$1" digest="$2" current
+  current=$(state_read "$STACK.deployed")
+  if [ -n "$current" ] && [ "${current%% *}" != "$sha" ]; then
+    printf '%s\n' "$current" >"$STATE/$STACK.previous"
+  fi
+  printf '%s %s\n' "$sha" "$digest" >"$STATE/$STACK.deployed"
+  rm -f "$STATE/$STACK.bad"
+  touch "$STACK_DIR/releases/$sha"
+  ln -sfn "releases/$sha" "$STACK_DIR/current"
+  prune_releases
+}
+
+deploy_and_handle() { # <sha> <digest>
+  local sha="$1" digest="$2" rc=0
+  report "$STACK" started "$sha"
+  deploy_release "$sha" || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    record_success "$sha" "$digest"
+    report "$STACK" success "$sha"
+    return 0
+  fi
+  if [ "$rc" -eq "$PREFLIGHT" ]; then
+    report "$STACK" preflight-failed "$sha" "will retry"
+    return 1
+  fi
+  err "deploy of $sha failed (code $rc)"
   return 1
 }
 

@@ -104,6 +104,9 @@ sha=$(sudo -u mcpwr-deploy /opt/mcpwr/agent/mcpwr-deploy backend status | awk '/
 sudo -u mcpwr-deploy /opt/mcpwr/agent/mcpwr-deploy backend deploy "$sha"   # recreates nginx
 ```
 
+`TRUSTED_PROXY_CIDR` is an env var in `.env.prod`, so this redeploy *does* change compose's
+config hash and nginx really is recreated — unlike a secret file's content, below.
+
 Until then every visitor shares one rate-limit bucket. In production the BFF sets `Secure`
 cookies, so logging in over plain `http://10.21.36.20` does not stick in a browser; it works over
 `https://mcpwr.solvro.pl`.
@@ -145,16 +148,25 @@ a log driver.
 `mongo.archive.gz` and keeps a week. They live on the same VM: they cover mistakes and bad
 migrations, not losing the machine.
 
+`docker ps`/`docker exec` need `sudo` (only `mcpwr-deploy` is in the `docker` group), and the dump
+files under `/var/backups/mcpwr` (0700 root) must be read by `sudo` too, not by your shell's own
+redirection. `mcpwr pause` only stops the *automatic* deploy ticks — auth-service and chat-service
+keep writing to the databases the whole time, so stop them for the restore itself.
+
 ```bash
-pg=$(docker ps -q --filter label=com.docker.compose.project=backend-mcp --filter label=com.docker.compose.service=postgres)
-mg=$(docker ps -q --filter label=com.docker.compose.project=backend-mcp --filter label=com.docker.compose.service=mongo)
+pg=$(sudo docker ps -q --filter label=com.docker.compose.project=backend-mcp --filter label=com.docker.compose.service=postgres)
+mg=$(sudo docker ps -q --filter label=com.docker.compose.project=backend-mcp --filter label=com.docker.compose.service=mongo)
+auth=$(sudo docker ps -q --filter label=com.docker.compose.project=backend-mcp --filter label=com.docker.compose.service=auth-service)
+chat=$(sudo docker ps -q --filter label=com.docker.compose.project=backend-mcp --filter label=com.docker.compose.service=chat-service)
 mcpwr pause
+sudo docker stop "$auth" "$chat"
 # Postgres
-sudo docker exec -i "$pg" sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists' \
-  < /var/backups/mcpwr/<date>/postgres.dump
+sudo cat /var/backups/mcpwr/<date>/postgres.dump |
+  sudo docker exec -i "$pg" sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists'
 # Mongo
-sudo docker exec -i "$mg" sh -c 'mongorestore --quiet --archive --gzip --drop --authenticationDatabase admin -u "$MONGO_INITDB_ROOT_USERNAME" -p "$(cat "$MONGO_INITDB_ROOT_PASSWORD_FILE")"' \
-  < /var/backups/mcpwr/<date>/mongo.archive.gz
+sudo cat /var/backups/mcpwr/<date>/mongo.archive.gz |
+  sudo docker exec -i "$mg" sh -c 'mongorestore --quiet --archive --gzip --drop --authenticationDatabase admin -u "$MONGO_INITDB_ROOT_USERNAME" -p "$(cat "$MONGO_INITDB_ROOT_PASSWORD_FILE")"'
+sudo docker start "$auth" "$chat"
 mcpwr resume
 ```
 
@@ -163,10 +175,17 @@ mcpwr resume
 1. `openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out new_private.pem`,
    `openssl pkey -in new_private.pem -pubout -out new_public.pem`.
 2. In `/etc/ml-mcp/secrets`: `mv jwt_public_key.pem jwt_previous_public_key.pem`; install the new
-   pair as `jwt_private_key.pem` / `jwt_public_key.pem` (0440 root:mcpwr-deploy).
-3. `mcpwr backend deploy <deployed sha>` (recreates auth- and chat-service). Tokens signed by the
-   old key keep verifying via their `kid`.
-4. After `REFRESH_TOKEN_EXPIRE_DAYS` (7), truncate `jwt_previous_public_key.pem` and redeploy.
+   pair as `jwt_private_key.pem` / `jwt_public_key.pem` (0440 root:mcpwr-deploy); then
+   `shred -u new_private.pem new_public.pem` wherever you generated them in step 1 — they must
+   not linger in your home directory.
+3. Restart auth-service and chat-service directly — `mcpwr backend deploy` does **not** do this
+   for you: a secret file is a bind mount by path, so a content change (unlike an env var) never
+   changes compose's config hash, and `deploy` only recreates containers whose hash changed.
+   `sudo docker restart` the two containers instead, found the same way as in Backups above
+   (`--filter label=com.docker.compose.service=auth-service` / `=chat-service`). Tokens signed by
+   the old key keep verifying via their `kid`.
+4. After `REFRESH_TOKEN_EXPIRE_DAYS` (7), truncate `jwt_previous_public_key.pem` and restart the
+   same two containers again — not `mcpwr backend deploy`, for the same reason as step 3.
 
 ### TLS
 

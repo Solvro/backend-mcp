@@ -27,6 +27,13 @@ def test_unknown_arguments_are_rejected_before_anything_runs():
     assert "usage:" in result.stderr
 
 
+def test_ref_without_a_value_is_rejected():
+    result = run("--ref")
+
+    assert result.returncode == 2
+    assert "usage:" in result.stderr
+
+
 @pytest.mark.skipif(os.geteuid() == 0, reason="must run as a normal user")
 def test_refuses_to_run_without_root():
     result = run("--ref", "main")

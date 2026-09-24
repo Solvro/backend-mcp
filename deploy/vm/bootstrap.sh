@@ -56,6 +56,9 @@ die() {
 # shellcheck source=/dev/null
 . /etc/os-release
 case "$ID" in ubuntu | debian) ;; *) die "unsupported OS: $ID (Debian/Ubuntu only)" ;; esac
+if command -v snap >/dev/null 2>&1 && snap list docker >/dev/null 2>&1; then
+  die "docker is installed via snap - this script manages apt's docker-ce (a different daemon.json path, docker group and systemd unit); remove the snap package first"
+fi
 export DEBIAN_FRONTEND=noninteractive
 
 log "packages"
@@ -76,9 +79,22 @@ fi
 log "docker daemon settings"
 desired='{"live-restore": true, "log-driver": "json-file", "log-opts": {"max-size": "10m", "max-file": "5"}}'
 mkdir -p /etc/docker
-if [ ! -f /etc/docker/daemon.json ] ||
-  [ "$(jq -S . /etc/docker/daemon.json)" != "$(printf '%s' "$desired" | jq -S .)" ]; then
-  printf '%s' "$desired" | jq . >/etc/docker/daemon.json
+if [ -f /etc/docker/daemon.json ]; then
+  existing=$(cat /etc/docker/daemon.json)
+else
+  existing='{}'
+fi
+# Merge over whatever the operator already has (mtu, default-address-pools, registry mirrors,
+# ...): our keys win on conflict via jq's `*`, everything else survives a re-run.
+merged=$(jq -s '.[0] * .[1]' <(printf '%s' "$existing") <(printf '%s' "$desired"))
+if [ "$(printf '%s' "$merged" | jq -S .)" != "$(printf '%s' "$existing" | jq -S .)" ]; then
+  live_restore_was_on=$(printf '%s' "$existing" | jq -r '."live-restore" == true')
+  printf '%s' "$merged" | jq . >/etc/docker/daemon.json
+  if [ "$live_restore_was_on" != "true" ] && systemctl is-active --quiet docker 2>/dev/null; then
+    # live-restore is reloadable without restarting containers; turn it on via reload first so
+    # the restart below (needed to pick up the rest of this settings change) does not kill them.
+    systemctl reload docker
+  fi
   # Until live-restore is on, this restart also restarts running containers (unless-stopped).
   systemctl restart docker
 fi
@@ -133,8 +149,14 @@ PasswordAuthentication no
 KbdInteractiveAuthentication no
 PermitRootLogin no
 EOF
+  mkdir -p /run/sshd # sshd -t fails without this dir on a host with no SSH login since boot
   sshd -t
-  systemctl reload ssh 2>/dev/null || systemctl reload sshd
+  if systemctl cat ssh.service >/dev/null 2>&1; then
+    systemctl reload ssh
+  else
+    systemctl reload sshd
+  fi
+  log "password login and root login are now disabled for SSH; key login for $admin must already work"
 else
   log "WARNING: $admin has no ~/.ssh/authorized_keys - leaving SSH password login enabled"
 fi

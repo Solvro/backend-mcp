@@ -52,18 +52,23 @@ load_stack() { # <stack>
   local conf="$MCPWR_STACKS_DIR/$STACK.conf"
   [ -f "$conf" ] || { err "unknown stack: $STACK"; exit 2; }
   REPO_URL="" SPARSE_PATHS="" PROJECT="" PRIMARY_IMAGE="" IMAGES="" COMPOSE_FILES=""
-  ENV_FILE="" REQUIRED_NETWORKS="" MIGRATE_SERVICE="" HEALTH_URL=""
+  ENV_FILE="" REQUIRED_NETWORKS="" MIGRATE_SERVICE="" HEALTH_URL="" WAIT_TIMEOUT=""
   # shellcheck source=/dev/null
   . "$conf"
   STACK_DIR="$MCPWR_HOME/stacks/$STACK"
   mkdir -p "$STACK_DIR/releases" "$STATE"
 }
 
-with_lock() {
+with_lock() { # <skip|wait>: a tick skips a busy lock; a human's deploy/rollback waits for it
   exec 9>"$STATE/deploy.lock"
-  if ! flock -n 9; then
-    info "another deploy holds the lock; skipping"
-    exit 0
+  if [ "$1" = skip ]; then
+    if ! flock -n 9; then
+      info "another deploy holds the lock; skipping"
+      exit 0
+    fi
+  elif ! flock -w 900 9; then
+    err "another deploy still holds the lock after 15 minutes; nothing was done"
+    exit 1
   fi
 }
 
@@ -130,26 +135,31 @@ health_gate() {
 
 deploy_release() { # <sha> <forward|rollback> -> 0, PREFLIGHT, MIGRATE_FAILED or SWAP_FAILED
   local sha="$1" mode="$2" dir="$STACK_DIR/releases/$1" network services
+  local wait_timeout="${WAIT_TIMEOUT:-$MCPWR_WAIT_TIMEOUT}"
   fetch_release "$sha" || { warn "fetching $sha from $REPO_URL failed"; return "$PREFLIGHT"; }
   for network in $REQUIRED_NETWORKS; do
     docker network inspect "$network" >/dev/null 2>&1 ||
       { warn "required network $network does not exist yet"; return "$PREFLIGHT"; }
   done
-  compose "$dir" "$sha" pull --quiet || { warn "pulling sha-$sha failed"; return "$PREFLIGHT"; }
   if [ "$mode" = forward ]; then
+    compose "$dir" "$sha" pull --quiet || { warn "pulling sha-$sha failed"; return "$PREFLIGHT"; }
     if [ -n "$MIGRATE_SERVICE" ]; then
       compose "$dir" "$sha" run --rm "$MIGRATE_SERVICE" ||
         { err "migration of $sha failed"; return "$MIGRATE_FAILED"; }
     fi
-    compose "$dir" "$sha" up -d --no-build --remove-orphans --wait --wait-timeout "$MCPWR_WAIT_TIMEOUT" ||
+    compose "$dir" "$sha" up -d --no-build --remove-orphans --wait --wait-timeout "$wait_timeout" ||
       return "$SWAP_FAILED"
   else
+    # A rollback must also work while the registry is down: the previous release's images are
+    # never pruned, so they are still local.
+    compose "$dir" "$sha" pull --quiet --ignore-pull-failures ||
+      { warn "pulling sha-$sha failed"; return "$PREFLIGHT"; }
     # A rollback never re-runs the old migrate one-shot: the schema may already be ahead of it,
     # alembic would fail on the unknown revision, and auth-service (which depends on it) with it.
     services=$(compose "$dir" "$sha" config --services) || return "$SWAP_FAILED"
     services=$(printf '%s\n' "$services" | grep -vx "${MIGRATE_SERVICE:-}" || true)
     # shellcheck disable=SC2086 # one word per service name
-    compose "$dir" "$sha" up -d --no-build --no-deps --wait --wait-timeout "$MCPWR_WAIT_TIMEOUT" $services ||
+    compose "$dir" "$sha" up -d --no-build --no-deps --remove-orphans --wait --wait-timeout "$wait_timeout" $services ||
       return "$SWAP_FAILED"
   fi
   health_gate || return "$SWAP_FAILED"
@@ -225,7 +235,7 @@ deploy_and_handle() { # <sha> <digest>
 }
 
 cmd_tick() {
-  with_lock
+  with_lock skip
   if [ -f "$STATE/paused" ]; then
     info "automatic deploys are paused; not deploying $STACK"
     return 0
@@ -261,7 +271,7 @@ cmd_status() {
 cmd_deploy() { # <sha>
   local sha="$1" digest
   printf '%s' "$sha" | grep -Eq '^[0-9a-f]{40}$' || { err "not a full commit sha: $sha"; exit 2; }
-  with_lock
+  with_lock wait
   digest=$(registry_digest "$PRIMARY_IMAGE" "sha-$sha") || digest=""
   [ -n "$digest" ] || { err "no image $PRIMARY_IMAGE:sha-$sha on the registry"; return 1; }
   deploy_and_handle "$sha" "$digest"
@@ -269,13 +279,16 @@ cmd_deploy() { # <sha>
 
 cmd_rollback() {
   local running previous
-  with_lock
+  with_lock wait
   previous=$(state_read "$STACK.previous")
   [ -n "$previous" ] || { err "no previous release of $STACK recorded"; return 1; }
   running=$(state_read "$STACK.deployed")
   if deploy_release "${previous%% *}" rollback; then
     printf '%s\n' "$previous" >"$STATE/$STACK.deployed"
     printf '%s\n' "$running" >"$STATE/$STACK.previous"
+    # Like an automatic rollback: the release rolled back from is not redeployed by the next
+    # tick, only once :main moves (or by an explicit `deploy <sha>`).
+    if [ -n "$running" ]; then printf '%s\n' "${running#* }" >"$STATE/$STACK.bad"; fi
     ln -sfn "releases/${previous%% *}" "$STACK_DIR/current"
     report "$STACK" rolled-back "${running%% *}" "running ${previous%% *} (manual)"
   else

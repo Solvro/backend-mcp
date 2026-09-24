@@ -55,6 +55,19 @@ def test_new_release_is_migrated_swapped_gated_and_recorded(agent):
     assert os.readlink(agent.home / "stacks/backend/current") == f"releases/{SHA_B}"
 
 
+def test_stack_config_can_set_its_own_wait_timeout(agent):
+    agent.write_conf("backend", stack_conf(WAIT_TIMEOUT="300"))
+    agent.rules = happy()
+
+    result = agent.tick()
+
+    assert result.returncode == 0, result.stderr
+    ups = [compose_action(c) for c in agent.compose() if compose_action(c)[0] == "up"]
+    assert ups == [
+        ["up", "-d", "--no-build", "--remove-orphans", "--wait", "--wait-timeout", "300"]
+    ]
+
+
 def test_degraded_backend_passes_the_gate(agent):
     agent.rules = happy(status="degraded")
 

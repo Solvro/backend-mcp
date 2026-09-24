@@ -63,6 +63,38 @@ def test_manual_rollback_swaps_releases_without_migrating(agent):
     assert agent.state("backend.previous") == f"{SHA_B} {DIGEST_2}"
     assert os.readlink(agent.home / "stacks/backend/current") == f"releases/{SHA_A}"
     assert all("migrate" not in compose_action(c) for c in agent.compose())
+    assert agent.state("backend.bad") == DIGEST_2
+
+
+def test_rollback_then_tick_is_a_no_op(agent):
+    # :main still points at the release that was rolled back from: it stays rolled back.
+    agent.set_state("backend.deployed", f"{SHA_B} {DIGEST_2}\n")
+    agent.set_state("backend.previous", f"{SHA_A} {DIGEST_1}\n")
+    agent.mark_fetched(SHA_A)
+    agent.rules = [health("ok"), SERVICES, *registry(DIGEST_2)]
+    assert agent.mcpwr("backend", "rollback").returncode == 0
+    compose_calls = len(agent.compose())
+
+    result = agent.tick()
+
+    assert result.returncode == 0, result.stderr
+    assert len(agent.compose()) == compose_calls
+    assert agent.state("backend.deployed") == f"{SHA_A} {DIGEST_1}"
+
+
+@pytest.mark.parametrize("command", [["deploy", SHA_B], ["rollback"]])
+def test_manual_command_waits_for_the_lock_and_fails_if_it_never_comes(agent, command):
+    agent.set_state("backend.deployed", f"{SHA_B} {DIGEST_2}\n")
+    agent.set_state("backend.previous", f"{SHA_A} {DIGEST_1}\n")
+    agent.rules = [{"cmd": "flock", "exit": 1}]
+
+    result = agent.mcpwr("backend", *command)
+
+    assert result.returncode == 1
+    assert "another deploy still holds the lock" in result.stderr
+    assert [c["args"] for c in agent.calls("flock")] == [["-w", "900", "9"]]
+    assert agent.calls("curl") == []
+    assert agent.compose() == []
 
 
 def test_rollback_without_a_previous_release_fails(agent):

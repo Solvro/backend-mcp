@@ -62,10 +62,12 @@ def test_failed_health_gate_rolls_back_without_rerunning_migrations(agent):
     assert f"rolling backend back to {SHA_A}" in result.stderr
     rollback = [compose_action(c) for c in agent.compose() if c["release_tag"] == f"sha-{SHA_A}"]
     assert rollback == [
-        ["pull", "--quiet"],
+        # A rollback must work while the registry is down: its images are never pruned.
+        ["pull", "--quiet", "--ignore-pull-failures"],
         ["config", "--services"],
         [
-            "up", "-d", "--no-build", "--no-deps", "--wait", "--wait-timeout", "180",
+            "up", "-d", "--no-build", "--no-deps", "--remove-orphans",
+            "--wait", "--wait-timeout", "180",
             "postgres", "redis", "auth-service", "chat-service", "nginx",
         ],
     ]

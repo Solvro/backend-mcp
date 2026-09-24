@@ -10,6 +10,7 @@ UNITS = ROOT / "deploy/systemd"
 FIELDS = (
     "REPO_URL", "SPARSE_PATHS", "PROJECT", "PRIMARY_IMAGE", "IMAGES",
     "COMPOSE_FILES", "ENV_FILE", "REQUIRED_NETWORKS", "MIGRATE_SERVICE", "HEALTH_URL",
+    "WAIT_TIMEOUT",
 )
 EXPECTED = {
     "backend": {
@@ -21,6 +22,7 @@ EXPECTED = {
         "REQUIRED_NETWORKS": "solvro-mcp-internal",
         "MIGRATE_SERVICE": "migrate",
         "HEALTH_URL": "/health",
+        "WAIT_TIMEOUT": "",
     },
     "ml-mcp": {
         "REPO_URL": "https://github.com/Solvro/ml-mcp.git",
@@ -31,6 +33,7 @@ EXPECTED = {
         "REQUIRED_NETWORKS": "solvro-mcp-internal",
         "MIGRATE_SERVICE": "",
         "HEALTH_URL": "",
+        "WAIT_TIMEOUT": "300",
     },
     "frontend": {
         "REPO_URL": "https://github.com/Solvro/frontend-mcp.git",
@@ -41,13 +44,18 @@ EXPECTED = {
         "REQUIRED_NETWORKS": "backend-mcp_backend",
         "MIGRATE_SERVICE": "",
         "HEALTH_URL": "",
+        "WAIT_TIMEOUT": "",
     },
 }
 
 
 def load(stack: str) -> dict[str, str]:
     values = " ".join(f'"${name}"' for name in FIELDS)
-    script = f'set -u; MCPWR_HOME=/opt/mcpwr; . "{CONF_DIR / stack}.conf"; printf "%s\\n" {values}'
+    # WAIT_TIMEOUT is optional: the agent resets it before sourcing, as done here.
+    script = (
+        f'set -u; MCPWR_HOME=/opt/mcpwr; WAIT_TIMEOUT=""; . "{CONF_DIR / stack}.conf"; '
+        f'printf "%s\\n" {values}'
+    )
     out = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=True).stdout
     return dict(zip(FIELDS, out.split("\n")))
 

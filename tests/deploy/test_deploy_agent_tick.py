@@ -21,6 +21,7 @@ def test_tick_skips_when_another_deploy_holds_the_lock(agent):
 
     assert result.returncode == 0
     assert "holds the lock" in result.stderr
+    assert [c["args"] for c in agent.calls("flock")] == [["-n", "9"]]  # skips, never waits
     assert agent.calls("curl") == []
 
 

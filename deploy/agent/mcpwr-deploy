@@ -240,15 +240,15 @@ cmd_tick() {
     info "automatic deploys are paused; not deploying $STACK"
     return 0
   fi
-  local digest deployed bad sha
+  local digest deployed sha
   digest=$(registry_digest "$PRIMARY_IMAGE" main) || digest=""
   if [ -z "$digest" ]; then
     warn "could not resolve $PRIMARY_IMAGE:main"
     return 1
   fi
   deployed=$(state_read "$STACK.deployed")
-  bad=$(state_read "$STACK.bad")
-  if [ "${deployed#* }" = "$digest" ] || [ "$bad" = "$digest" ]; then
+  # <stack>.bad holds one digest per line: every release that must not come back by itself.
+  if [ "${deployed#* }" = "$digest" ] || grep -qxF "$digest" "$STATE/$STACK.bad" 2>/dev/null; then
     return 0
   fi
   sha=$(resolve_sha "$digest") || { warn "could not read the revision of $digest"; return 1; }
@@ -262,7 +262,8 @@ cmd_status() {
   printf 'deployed: %s\n' "${value:--}"
   value=$(state_read "$STACK.previous")
   printf 'previous: %s\n' "${value:--}"
-  value=$(state_read "$STACK.bad")
+  value=$(state_read "$STACK.bad" | tr '\n' ' ')
+  value="${value% }"
   printf 'bad:      %s\n' "${value:--}"
   if [ -f "$STATE/paused" ]; then value=yes; else value=no; fi
   printf 'paused:   %s\n' "$value"
@@ -287,8 +288,9 @@ cmd_rollback() {
     printf '%s\n' "$previous" >"$STATE/$STACK.deployed"
     printf '%s\n' "$running" >"$STATE/$STACK.previous"
     # Like an automatic rollback: the release rolled back from is not redeployed by the next
-    # tick, only once :main moves (or by an explicit `deploy <sha>`).
-    if [ -n "$running" ]; then printf '%s\n' "${running#* }" >"$STATE/$STACK.bad"; fi
+    # tick, only once :main moves (or by an explicit `deploy <sha>`). Appended, not overwritten:
+    # after an automatic rollback :main is already on the list, and must stay there.
+    if [ -n "$running" ]; then printf '%s\n' "${running#* }" >>"$STATE/$STACK.bad"; fi
     ln -sfn "releases/${previous%% *}" "$STACK_DIR/current"
     report "$STACK" rolled-back "${running%% *}" "running ${previous%% *} (manual)"
   else

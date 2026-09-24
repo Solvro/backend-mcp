@@ -1,5 +1,5 @@
 import pytest
-from deploy_harness import DIGEST_1, DIGEST_2, SHA_A, registry
+from deploy_harness import DIGEST_1, DIGEST_2, DIGEST_3, SHA_A, registry
 
 pytestmark = pytest.mark.unit
 
@@ -45,6 +45,17 @@ def test_digest_marked_bad_is_not_retried(agent):
     assert result.returncode == 0, result.stderr
     assert agent.calls("docker") == []
 
+
+
+def test_any_digest_on_the_bad_list_is_not_retried(agent):
+    agent.set_state("backend.deployed", f"{SHA_A} {DIGEST_1}\n")
+    agent.set_state("backend.bad", f"{DIGEST_3}\n{DIGEST_2}\n")
+    agent.rules = registry(DIGEST_2)
+
+    result = agent.tick()
+
+    assert result.returncode == 0, result.stderr
+    assert agent.calls("docker") == []
 
 def test_registry_failure_changes_nothing(agent):
     agent.set_state("backend.deployed", f"{SHA_A} {DIGEST_1}\n")

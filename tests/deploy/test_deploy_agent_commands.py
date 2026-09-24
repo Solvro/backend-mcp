@@ -1,7 +1,18 @@
 import os
 
 import pytest
-from deploy_harness import DIGEST_1, DIGEST_2, SHA_A, SHA_B, compose_action, health, registry
+from deploy_harness import (
+    DIGEST_1,
+    DIGEST_2,
+    DIGEST_3,
+    SHA_A,
+    SHA_B,
+    SHA_C,
+    compose_action,
+    health,
+    registry,
+    revision,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -81,6 +92,33 @@ def test_rollback_then_tick_is_a_no_op(agent):
     assert len(agent.compose()) == compose_calls
     assert agent.state("backend.deployed") == f"{SHA_A} {DIGEST_1}"
 
+
+
+def test_manual_rollback_after_an_automatic_one_keeps_main_marked_bad(agent):
+    # :main (DIGEST_3) failed its gate and was rolled back to SHA_B automatically; the operator
+    # then rolls back one step further. The next tick must still leave :main alone.
+    agent.set_state("backend.deployed", f"{SHA_B} {DIGEST_2}\n")
+    agent.set_state("backend.previous", f"{SHA_A} {DIGEST_1}\n")
+    agent.set_state("backend.bad", f"{DIGEST_3}\n")
+    agent.mark_fetched(SHA_A)
+    agent.rules = [health("ok"), SERVICES, *registry(DIGEST_3), revision(DIGEST_3, SHA_C)]
+    assert agent.mcpwr("backend", "rollback").returncode == 0
+    compose_calls = len(agent.compose())
+
+    result = agent.tick()
+
+    assert result.returncode == 0, result.stderr
+    assert len(agent.compose()) == compose_calls
+    assert agent.state("backend.deployed") == f"{SHA_A} {DIGEST_1}"
+
+
+def test_status_lists_every_bad_digest(agent):
+    agent.set_state("backend.bad", f"{DIGEST_1}\n{DIGEST_2}\n")
+
+    result = agent.mcpwr("backend", "status")
+
+    assert result.returncode == 0, result.stderr
+    assert f"bad:      {DIGEST_1} {DIGEST_2}" in result.stdout.splitlines()
 
 @pytest.mark.parametrize("command", [["deploy", SHA_B], ["rollback"]])
 def test_manual_command_waits_for_the_lock_and_fails_if_it_never_comes(agent, command):

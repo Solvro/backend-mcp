@@ -67,7 +67,9 @@ def test_creates_every_secret_with_tight_permissions(layout):
     assert result.returncode == 0, result.stderr
     assert mode(layout.secrets) == 0o750
     for name in GENERATED + DERIVED + KEYS + EMPTY:
-        assert mode(layout.secrets / name) == 0o440, name
+        # 0444: containers read them as uid 999 through read-only bind mounts that keep the host
+        # mode; the 0750 root:mcpwr-deploy directory is what keeps other host users out.
+        assert mode(layout.secrets / name) == 0o444, name
     for name in GENERATED:
         assert HEX64.match((layout.secrets / name).read_text()), name
     for name in EMPTY:
@@ -140,16 +142,37 @@ def test_existing_neo4j_password_is_kept(layout):
     assert env_value(layout.ml_env, "NEO4J_PASSWORD") == "chosen-by-a-human"
 
 
-def test_failed_example_download_leaves_no_half_written_file(layout, tmp_path):
+def test_failed_example_download_still_creates_every_backend_secret(layout, tmp_path):
     result = layout.run(ML_MCP_ENV_EXAMPLE_URL=(tmp_path / "missing").as_uri())
 
-    assert result.returncode != 0
+    assert result.returncode == 0, result.stderr
+    for name in GENERATED + DERIVED + KEYS + EMPTY:
+        assert (layout.secrets / name).exists(), name
+    assert layout.backend_env.exists()
     assert not layout.ml_env.exists()
+    assert list(layout.ml_env.parent.iterdir()) == []  # no half-written file either
+    assert "WARNING:" in result.stderr
+    assert "re-run this script after ml-mcp's main has it" in result.stderr
+
+
+def test_rerun_once_the_example_is_published_creates_only_the_ml_env(layout, tmp_path):
+    assert layout.run(ML_MCP_ENV_EXAMPLE_URL=(tmp_path / "missing").as_uri()).returncode == 0
+    files = [*layout.secrets.iterdir(), layout.backend_env]
+    before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in files}
+
+    result = layout.run()
+
+    assert result.returncode == 0, result.stderr
+    assert {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in files} == before
+    assert sorted(layout.secrets.iterdir()) == sorted(files[:-1])  # no new secret file
+    assert mode(layout.ml_env) == 0o640
+    assert HEX64.match(env_value(layout.ml_env, "NEO4J_PASSWORD"))
+    assert "WARNING" not in result.stderr
 
 
 def test_generation_failure_leaves_no_partial_secret(layout, tmp_path):
-    # A NEO4J_PASSWORD already set skips the earlier generator call, so the fake openssl below
-    # is first hit by the postgres_password loop, matching the reviewer's reproduction.
+    # The fake openssl below is first hit by the postgres_password loop, matching the reviewer's
+    # reproduction (the ml-mcp env, handled last, already has its NEO4J_PASSWORD).
     layout.ml_env.parent.mkdir(parents=True)
     layout.ml_env.write_text("NEO4J_PASSWORD=chosen-by-a-human\n")
     fake_bin = tmp_path / "fake-bin"

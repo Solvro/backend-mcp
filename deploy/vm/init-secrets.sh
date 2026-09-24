@@ -74,34 +74,13 @@ read_secret() { # <path>: prints a checked non-empty secret file's contents, or 
 }
 
 mkdir -p "$SECRETS_DIR" "$(dirname "$BACKEND_ENV")" "$(dirname "$ML_MCP_ENV")"
+# Secret files are 0444: compose's file secrets are read-only bind mounts that keep the host
+# owner and mode, and the services read them as uid 999. This 0750 directory is what keeps
+# every host user but root and mcpwr-deploy out.
 own 0750 "$SECRETS_DIR"
 
-# 1. Env files from their examples. Humans fill in FRONTEND_URL, SMTP_* and the LLM keys.
+# 1. The backend's env file from its example. Humans fill in FRONTEND_URL and SMTP_*.
 write_new "$BACKEND_ENV" 0640 <"$SRC_DIR/.env.prod.example"
-if [ -e "$ML_MCP_ENV" ]; then
-  printf 'kept    %s\n' "$ML_MCP_ENV"
-else
-  example=$(mktemp)
-  track "$example"
-  if ! curl -fsS "$ML_MCP_ENV_EXAMPLE_URL" -o "$example"; then
-    printf 'could not download %s\n' "$ML_MCP_ENV_EXAMPLE_URL" >&2
-    exit 1
-  fi
-  write_new "$ML_MCP_ENV" 0640 <"$example"
-fi
-if [ -z "$(env_value "$ML_MCP_ENV" NEO4J_PASSWORD)" ]; then
-  neo4j_pw=$(generate "NEO4J_PASSWORD in $ML_MCP_ENV")
-  ml_env_new=$(mktemp "$(dirname "$ML_MCP_ENV")/.init-secrets.XXXXXX")
-  track "$ml_env_new"
-  NEO4J_PW="$neo4j_pw" awk '
-    /^NEO4J_PASSWORD=/ { print "NEO4J_PASSWORD=" ENVIRON["NEO4J_PW"]; done = 1; next }
-    { print }
-    END { if (!done) print "NEO4J_PASSWORD=" ENVIRON["NEO4J_PW"] }
-  ' "$ML_MCP_ENV" >"$ml_env_new"
-  own 0640 "$ml_env_new"
-  mv -f "$ml_env_new" "$ML_MCP_ENV" # atomic: never leaves a truncated file if killed mid-write
-  printf 'set     NEO4J_PASSWORD in %s\n' "$ML_MCP_ENV"
-fi
 
 # 2. Database passwords, and the connection URLs built from them. Each secret is generated
 # and checked in its own statement (so a failing generator, not just a failing pipeline, is
@@ -109,7 +88,7 @@ fi
 # empty file from an old failed run is refused rather than silently trusted.
 for name in postgres_password mongo_root_password redis_password; do
   pw=$(generate "$SECRETS_DIR/$name") # its own statement: a failed generator must not reach write_new
-  printf '%s' "$pw" | write_new "$SECRETS_DIR/$name" 0440
+  printf '%s' "$pw" | write_new "$SECRETS_DIR/$name" 0444
 done
 pg_user=$(env_value "$BACKEND_ENV" POSTGRES_USER)
 pg_db=$(env_value "$BACKEND_ENV" POSTGRES_DB)
@@ -120,13 +99,13 @@ if [ -z "$pg_user" ] || [ -z "$pg_db" ] || [ -z "$mongo_user" ]; then
 fi
 postgres_password=$(read_secret "$SECRETS_DIR/postgres_password")
 printf 'postgresql+asyncpg://%s:%s@postgres:5432/%s' "$pg_user" "$postgres_password" "$pg_db" |
-  write_new "$SECRETS_DIR/database_url" 0440
+  write_new "$SECRETS_DIR/database_url" 0444
 mongo_root_password=$(read_secret "$SECRETS_DIR/mongo_root_password")
 printf 'mongodb://%s:%s@mongo:27017/?authSource=admin' "$mongo_user" "$mongo_root_password" |
-  write_new "$SECRETS_DIR/mongo_uri" 0440
+  write_new "$SECRETS_DIR/mongo_uri" 0444
 redis_password=$(read_secret "$SECRETS_DIR/redis_password")
 printf 'redis://:%s@redis:6379' "$redis_password" |
-  write_new "$SECRETS_DIR/redis_url" 0440
+  write_new "$SECRETS_DIR/redis_url" 0444
 
 # 3. The RS256 signing pair; the "previous" public key stays empty until the first rotation.
 private="$SECRETS_DIR/jwt_private_key.pem"
@@ -141,16 +120,46 @@ else
   track "$keys"
   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$keys/private.pem" 2>/dev/null
   openssl pkey -in "$keys/private.pem" -pubout -out "$keys/public.pem" 2>/dev/null
-  write_new "$private" 0440 <"$keys/private.pem"
-  write_new "$public" 0440 <"$keys/public.pem"
+  write_new "$private" 0444 <"$keys/private.pem"
+  write_new "$public" 0444 <"$keys/public.pem"
   rm -rf "$keys"
 fi
-: | write_new "$SECRETS_DIR/jwt_previous_public_key.pem" 0440
+: | write_new "$SECRETS_DIR/jwt_previous_public_key.pem" 0444
 
 # 4. External credentials: created empty, filled by a human with sudoedit.
 for name in openai_api_key google_api_key langfuse_secret_key smtp_pass; do
-  : | write_new "$SECRETS_DIR/$name" 0440
+  : | write_new "$SECRETS_DIR/$name" 0444
 done
+
+# 5. The ml-mcp env file, last: its example comes from ml-mcp's main, which may not have it yet,
+# and that must not hold up the backend's secrets. Humans fill in the LLM and Langfuse keys.
+ml_mcp_env_ready=1
+if [ -e "$ML_MCP_ENV" ]; then
+  printf 'kept    %s\n' "$ML_MCP_ENV"
+else
+  example=$(mktemp)
+  track "$example"
+  if curl -fsS "$ML_MCP_ENV_EXAMPLE_URL" -o "$example"; then
+    write_new "$ML_MCP_ENV" 0640 <"$example"
+  else
+    printf "WARNING: %s is not available yet; re-run this script after ml-mcp's main has it\n" \
+      "$ML_MCP_ENV_EXAMPLE_URL" >&2
+    ml_mcp_env_ready=0
+  fi
+fi
+if [ "$ml_mcp_env_ready" = 1 ] && [ -z "$(env_value "$ML_MCP_ENV" NEO4J_PASSWORD)" ]; then
+  neo4j_pw=$(generate "NEO4J_PASSWORD in $ML_MCP_ENV")
+  ml_env_new=$(mktemp "$(dirname "$ML_MCP_ENV")/.init-secrets.XXXXXX")
+  track "$ml_env_new"
+  NEO4J_PW="$neo4j_pw" awk '
+    /^NEO4J_PASSWORD=/ { print "NEO4J_PASSWORD=" ENVIRON["NEO4J_PW"]; done = 1; next }
+    { print }
+    END { if (!done) print "NEO4J_PASSWORD=" ENVIRON["NEO4J_PW"] }
+  ' "$ML_MCP_ENV" >"$ml_env_new"
+  own 0640 "$ml_env_new"
+  mv -f "$ml_env_new" "$ML_MCP_ENV" # atomic: never leaves a truncated file if killed mid-write
+  printf 'set     NEO4J_PASSWORD in %s\n' "$ML_MCP_ENV"
+fi
 
 cat <<EOF
 

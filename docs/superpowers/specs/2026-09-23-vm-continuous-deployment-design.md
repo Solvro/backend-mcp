@@ -124,9 +124,13 @@ configs, systemd units, `init-secrets.sh`) comes from that checkout. Later runs:
     <stack>.bad                  digest whose migration or gate failed (cleared when :main moves)
     paused                       presence pauses all automatic deploys
     deploy.lock
-/etc/ml-mcp/secrets/             0750 root:mcpwr-deploy, files 0440 root:mcpwr-deploy
+/etc/ml-mcp/secrets/             0750 root:mcpwr-deploy, files 0444 root:mcpwr-deploy
 /var/backups/mcpwr/<date>/       0700 root
 ```
+
+Secret files are 0444 because compose's file secrets are read-only bind mounts that keep the host
+mode and the services read them as uid 999; the 0750 directory limits host access to root and
+`mcpwr-deploy`.
 
 ## 6. Build and publish
 
@@ -291,6 +295,9 @@ config file from its example — `/opt/mcpwr/stacks/backend/.env.prod` from `.en
   human to fill with `sudoedit`;
 - sets a generated `NEO4J_PASSWORD` in the ml-mcp `.env` if empty; LLM keys (`OPENAI_`,
   `DEEPSEEK_`, `GOOGLE_`, `CLARIN_`) and Langfuse keys are filled by a human.
+
+The ml-mcp `.env` is handled last: if its example is not on ml-mcp's `main` yet, the script
+prints a warning and exits 0 with every backend secret in place; a later re-run creates it.
 
 The frontend has no secrets. In the backend's `.env.prod` a human sets `FRONTEND_URL=https://mcpwr.solvro.pl`, `TRUSTED_PROXY_CIDR`, and
 SMTP host/user/from. **SMTP server is unknown**; until set, verification/reset emails fail and

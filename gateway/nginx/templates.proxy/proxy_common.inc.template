@@ -8,6 +8,9 @@ proxy_set_header X-Real-IP         $remote_addr;
 proxy_set_header X-Forwarded-For   $remote_addr;
 # The public entry point is always HTTPS, terminated at Coolify.
 proxy_set_header X-Forwarded-Proto https;
+# Nor may a client pass its own RFC 7239 Forwarded header or choose the forwarded host.
+proxy_set_header Forwarded         "";
+proxy_set_header X-Forwarded-Host  $host;
 proxy_set_header X-Request-ID      $request_id_final;
 
 proxy_connect_timeout 5s;

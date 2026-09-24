@@ -153,7 +153,8 @@ services:
     ports: !override
       - "80:80"
     environment: !override
-      # Coolify's proxy address(es), the only peers allowed to set X-Forwarded-For.
+      # Coolify's proxy, the only peer allowed to set X-Forwarded-For: exactly one address or
+      # CIDR (set_real_ip_from takes one; two values crash nginx, and the rollback too).
       TRUSTED_PROXY_CIDR: ${TRUSTED_PROXY_CIDR:-127.0.0.1/32}
       NGINX_ENVSUBST_FILTER: ^TRUSTED_PROXY_CIDR$$
     deploy:

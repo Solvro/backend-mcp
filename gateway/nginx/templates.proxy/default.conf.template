@@ -36,15 +36,16 @@ server {
         proxy_pass $frontend;
     }
 
+    # With a URI in proxy_pass, chat-service gets the normalised path (never e.g. /x/../health).
     location = /health {
         include /etc/nginx/conf.d/proxy_common.inc;
         proxy_read_timeout 10s;
-        proxy_pass http://chat_service;
+        proxy_pass http://chat_service/health;
     }
     location = /health/live {
         include /etc/nginx/conf.d/proxy_common.inc;
         proxy_read_timeout 5s;
-        proxy_pass http://chat_service;
+        proxy_pass http://chat_service/health/live;
     }
 
     # Pages, including the email-link targets /auth/verify and /auth/reset-password. Anything

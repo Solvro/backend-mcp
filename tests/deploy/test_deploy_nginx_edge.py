@@ -1,5 +1,6 @@
 """The production edge (gateway/nginx/templates.proxy) in Docker, in front of stub upstreams
-that echo what they received: path, X-Forwarded-For and X-Forwarded-Proto."""
+that echo what they received: path, X-Forwarded-For, Forwarded, X-Forwarded-Host and
+X-Forwarded-Proto."""
 
 import subprocess
 import time
@@ -13,15 +14,19 @@ pytestmark = pytest.mark.integration
 
 NGINX = "nginx:1.27-alpine"
 CURL = "curlimages/curl:8.10.1"
+ECHO = (
+    "${STUB_NAME} $request_uri xff=$http_x_forwarded_for fwd=$http_forwarded "
+    "xfh=$http_x_forwarded_host proto=$http_x_forwarded_proto"
+)
 STUB_CONF = """server {
     listen 3000;
     listen 8000;
     location / {
     default_type text/plain;
-    return 200 "${STUB_NAME} $request_uri xff=$http_x_forwarded_for proto=$http_x_forwarded_proto";
+    return 200 "%s";
     }
 }
-"""
+""" % ECHO
 
 
 def docker(*args: str, check: bool = True) -> str:
@@ -78,8 +83,8 @@ def edge(tmp_path_factory):
             "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
         )
 
-        def get(edge_label: str, path: str, *headers: str) -> str:
-            args = ["exec", client, "curl", "-s", "--max-time", "5"]
+        def get(edge_label: str, path: str, *headers: str, curl_args: tuple = ()) -> str:
+            args = ["exec", client, "curl", "-s", "--max-time", "5", *curl_args]
             for header in headers:
                 args += ["-H", header]
             return docker(*args, f"http://edge-{edge_label}{path}", check=False)
@@ -111,6 +116,20 @@ def test_everything_but_health_goes_to_the_frontend(edge, path):
 @pytest.mark.parametrize("path", ["/health", "/health/live"])
 def test_health_goes_to_chat_service(edge, path):
     assert edge.get("untrusted", path).startswith(f"chat-service {path} ")
+
+
+def test_health_reaches_chat_service_as_the_normalised_path(edge):
+    body = edge.get("untrusted", "/x/../health/live", curl_args=("--path-as-is",))
+
+    assert body.startswith("chat-service /health/live ")
+
+
+def test_client_supplied_forwarded_and_host_headers_do_not_reach_the_upstream(edge):
+    body = edge.get("trusted", "/x", "Forwarded: for=6.6.6.6", "X-Forwarded-Host: evil.example")
+
+    assert "6.6.6.6" not in body
+    assert "evil.example" not in body
+    assert "fwd= xfh=edge-trusted " in body
 
 
 def test_untrusted_peer_cannot_choose_the_client_ip(edge):

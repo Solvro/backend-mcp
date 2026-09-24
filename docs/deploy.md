@@ -220,7 +220,10 @@ mcpwr resume
    `sudo docker restart` the two containers instead, found the same way as in Backups above
    (`--filter label=com.docker.compose.service=auth-service` / `=chat-service`). Tokens signed by
    the old key keep verifying via their `kid`.
-4. After `REFRESH_TOKEN_EXPIRE_DAYS` (7), `sudo truncate -s 0 "$d/jwt_previous_public_key.pem"`
+4. After `REFRESH_TOKEN_EXPIRE_DAYS` (7) — a new shell by then, so spell the path out:
+   ```bash
+   sudo truncate -s 0 /etc/ml-mcp/secrets/jwt_previous_public_key.pem
+   ```
    and restart the same two containers again — not `mcpwr backend deploy`, for the same reason
    as step 3.
 

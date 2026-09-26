@@ -17,7 +17,11 @@ fmt:
     uv run ruff check . --fix
 
 test:
-    uv run pytest -m "not e2e" --cov --cov-report=term-missing
+    uv run pytest -m unit --cov --cov-report=term-missing
+
+test-all:
+    uv run pytest -m unit --cov --cov-report=term-missing
+    uv run pytest -m "integration and not e2e" --cov --cov-report=term-missing --cov-append
 
 test-integration:
     uv run pytest -m integration
@@ -25,7 +29,7 @@ test-integration:
 test-e2e:
     uv run pytest -m e2e
 
-load base_url="http://localhost:8080":
+load base_url="https://localhost:8443":
     k6 run -e BASE_URL={{base_url}} tests/load/load_test.js
 
 load-compose:

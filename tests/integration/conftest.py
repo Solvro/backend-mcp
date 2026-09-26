@@ -75,6 +75,7 @@ def _start_service(
     port: int,
     env: dict[str, str],
     mount_keys: bool = False,
+    started: list[DockerContainer] | None = None,
 ) -> DockerContainer:
     container = DockerContainer(image)
     container.with_network(net).with_network_aliases(alias).with_exposed_ports(port)
@@ -83,6 +84,8 @@ def _start_service(
     if mount_keys:
         container.with_volume_mapping(KEY_DIR.as_posix(), "/run/integration-keys", "ro")
     container.start()
+    if started is not None:
+        started.append(container)
     wait_for_logs(container, "Application startup complete", timeout=60)
     return container
 
@@ -98,94 +101,115 @@ def integration_stack() -> Iterator[dict]:
     _ensure_keys()
     net = Network()
     net.create()
+    started: list[DockerContainer] = []
 
-    pg = PostgresContainer(
-        "postgres:16-alpine",
-        username="postgres",
-        password="postgres",
-        dbname="mcp_backend",
-    )
-    pg.with_network(net).with_network_aliases("postgres").start()
-
-    mongo = MongoDbContainer("mongo:7")
-    mongo.with_network(net).with_network_aliases("mongo").start()
-
-    redis = RedisContainer("redis:7-alpine")
-    redis.with_network(net).with_network_aliases("redis").start()
-
-    mailpit = DockerContainer("axllent/mailpit:latest")
-    (
-        mailpit.with_network(net)
-        .with_network_aliases("mailpit")
-        .with_env("MP_SMTP_AUTH_ACCEPT_ANY", "true")
-        .with_env("MP_SMTP_AUTH_ALLOW_INSECURE", "true")
-        .with_exposed_ports(8025)
-        .start()
-    )
-    mailpit_port = mailpit.get_exposed_port(8025)
-    _wait_http(f"http://127.0.0.1:{mailpit_port}/readyz")
-
-    mcp_stub = _start_service(
-        "ml-mcp-backend-integration-mcp-stub",
-        net=net,
-        alias="mcp-stub",
-        port=8005,
-        env={},
-    )
-
-    migrate = DockerContainer("ml-mcp-backend-integration-migrate")
-    (
-        migrate.with_network(net)
-        .with_command("alembic upgrade head")
-        .with_env(
-            "DATABASE_URL",
-            "postgresql+asyncpg://postgres:postgres@postgres:5432/mcp_backend",
+    try:
+        pg = PostgresContainer(
+            "postgres:16-alpine",
+            username="postgres",
+            password="postgres",
+            dbname="mcp_backend",
         )
-        .start()
-    )
-    exit_code = migrate.get_wrapped_container().wait()["StatusCode"]
-    assert exit_code == 0, "alembic upgrade head failed"
+        pg.with_network(net).with_network_aliases("postgres").start()
+        started.append(pg)
 
-    auth = _start_service(
-        "ml-mcp-backend-integration-auth-service",
-        net=net,
-        alias="auth-service",
-        port=8000,
-        env={
-            "DATABASE_URL": "postgresql+asyncpg://postgres:postgres@postgres:5432/mcp_backend",
-            "REDIS_URL": "redis://redis:6379",
-            "JWT_ALGORITHM": "RS256",
-            "JWT_PRIVATE_KEY_FILE": "/run/integration-keys/jwt_private.pem",
-            "JWT_PUBLIC_KEY_FILE": "/run/integration-keys/jwt_public.pem",
-            "SMTP_HOST": "mailpit",
-            "SMTP_PORT": "1025",
-            "SMTP_STARTTLS": "false",
-            "RATE_LIMIT_ENABLED": "false",
-        },
-        mount_keys=True,
-    )
+        mongo = MongoDbContainer("mongo:7")
+        mongo.with_network(net).with_network_aliases("mongo").start()
+        started.append(mongo)
 
-    chat = _start_service(
-        "ml-mcp-backend-integration-chat-service",
-        net=net,
-        alias="chat-service",
-        port=8000,
-        env={
-            "MONGO_URI": "mongodb://test:test@mongo:27017",
-            "REDIS_URL": "redis://redis:6379",
-            "MCP_SERVER_URL": "http://mcp-stub:8005/mcp",
-            "JWT_ALGORITHM": "RS256",
-            "JWT_PUBLIC_KEY_FILE": "/run/integration-keys/jwt_public.pem",
-            "RATE_LIMIT_ENABLED": "false",
-            "ANSWER_CACHE_ENABLED": "false",
-        },
-        mount_keys=True,
-    )
+        redis = RedisContainer("redis:7-alpine")
+        redis.with_network(net).with_network_aliases("redis").start()
+        started.append(redis)
 
-    yield {
-        "auth_url": f"http://127.0.0.1:{auth.get_exposed_port(8000)}",
-        "chat_url": f"http://127.0.0.1:{chat.get_exposed_port(8000)}",
-        "mailpit_url": f"http://127.0.0.1:{mailpit_port}",
-        "mcp_stub_container": mcp_stub,
-        "chat_container": chat,
-    }
+        mailpit = DockerContainer("axllent/mailpit:latest")
+        (
+            mailpit.with_network(net)
+            .with_network_aliases("mailpit")
+            .with_env("MP_SMTP_AUTH_ACCEPT_ANY", "true")
+            .with_env("MP_SMTP_AUTH_ALLOW_INSECURE", "true")
+            .with_exposed_ports(8025)
+            .start()
+        )
+        started.append(mailpit)
+        mailpit_port = mailpit.get_exposed_port(8025)
+        _wait_http(f"http://127.0.0.1:{mailpit_port}/readyz")
+
+        mcp_stub = _start_service(
+            "ml-mcp-backend-integration-mcp-stub",
+            net=net,
+            alias="mcp-stub",
+            port=8005,
+            env={},
+            started=started,
+        )
+
+        migrate = DockerContainer("ml-mcp-backend-integration-migrate")
+        (
+            migrate.with_network(net)
+            .with_command("alembic upgrade head")
+            .with_env(
+                "DATABASE_URL",
+                "postgresql+asyncpg://postgres:postgres@postgres:5432/mcp_backend",
+            )
+            .start()
+        )
+        started.append(migrate)
+        exit_code = migrate.get_wrapped_container().wait(timeout=120)["StatusCode"]
+        assert exit_code == 0, "alembic upgrade head failed"
+
+        auth = _start_service(
+            "ml-mcp-backend-integration-auth-service",
+            net=net,
+            alias="auth-service",
+            port=8000,
+            env={
+                "DATABASE_URL": "postgresql+asyncpg://postgres:postgres@postgres:5432/mcp_backend",
+                "REDIS_URL": "redis://redis:6379",
+                "JWT_ALGORITHM": "RS256",
+                "JWT_PRIVATE_KEY_FILE": "/run/integration-keys/jwt_private.pem",
+                "JWT_PUBLIC_KEY_FILE": "/run/integration-keys/jwt_public.pem",
+                "SMTP_HOST": "mailpit",
+                "SMTP_PORT": "1025",
+                "SMTP_STARTTLS": "false",
+                "RATE_LIMIT_ENABLED": "false",
+            },
+            mount_keys=True,
+            started=started,
+        )
+
+        chat = _start_service(
+            "ml-mcp-backend-integration-chat-service",
+            net=net,
+            alias="chat-service",
+            port=8000,
+            env={
+                "MONGO_URI": "mongodb://test:test@mongo:27017",
+                "REDIS_URL": "redis://redis:6379",
+                "MCP_SERVER_URL": "http://mcp-stub:8005/mcp",
+                "JWT_ALGORITHM": "RS256",
+                "JWT_PUBLIC_KEY_FILE": "/run/integration-keys/jwt_public.pem",
+                "RATE_LIMIT_ENABLED": "false",
+                "ANSWER_CACHE_ENABLED": "false",
+            },
+            mount_keys=True,
+            started=started
+        )
+
+        yield {
+            "auth_url": f"http://127.0.0.1:{auth.get_exposed_port(8000)}",
+            "chat_url": f"http://127.0.0.1:{chat.get_exposed_port(8000)}",
+            "mailpit_url": f"http://127.0.0.1:{mailpit_port}",
+            "mcp_stub_container": mcp_stub,
+            "chat_container": chat,
+        }
+    finally:
+        for container in reversed(started):
+            try:
+                container.stop()
+                container.remove()
+            except Exception:
+                pass
+        try:
+            net.remove()
+        except Exception:
+            pass

@@ -125,6 +125,7 @@ services:
       REDIS_URL: redis://redis:6379
       MCP_SERVER_URL: ${MCP_SERVER_URL:-http://mcp-server:8005/mcp}
       JWT_PUBLIC_KEY_FILE: /run/dev-keys/jwt_public.pem
+      CHAT_DAILY_QUOTA_ANONYMOUS: "500"
     volumes:
       - ./.e2e-keys:/run/dev-keys:ro
     ports:
@@ -179,7 +180,7 @@ services:
     profiles: [load]
     command: ["run", "/scripts/load_test.js"]
     environment:
-      BASE_URL: http://nginx
+      BASE_URL: https://nginx
     volumes:
       - ../tests/load/load_test.js:/scripts/load_test.js:ro
     depends_on:

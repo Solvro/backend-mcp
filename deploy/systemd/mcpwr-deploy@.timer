@@ -1,0 +1,10 @@
+[Unit]
+Description=Check GHCR for a new %i release every minute
+
+[Timer]
+OnBootSec=60
+OnUnitActiveSec=60
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

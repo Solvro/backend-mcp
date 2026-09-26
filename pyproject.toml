@@ -42,6 +42,7 @@ asyncio_mode = "auto"
 markers = [
     "unit: marks unit tests",
     "e2e: marks end-to-end tests",
+    "integration: needs Docker or other real backing services",
 ]
 
 [tool.coverage.run]

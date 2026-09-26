@@ -27,6 +27,7 @@ def rendered_config() -> dict:
         "SMTP_FROM": "a@x",
         "SERVER_NAME": "x",
         "CORS_ALLOWED_ORIGIN": "https://x",
+        "RELEASE_TAG": "sha-check",
     }
     with tempfile.TemporaryDirectory() as tmp:
         env["SECRETS_DIR"] = tmp

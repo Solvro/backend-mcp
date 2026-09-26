@@ -12,6 +12,10 @@ lint:
     uv run python scripts/check_env_example.py
     uv run python scripts/check_prod_secrets.py
 
+# Shell scripts under deploy/ (needs Docker for the shellcheck image).
+lint-sh:
+    docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:stable $(find deploy -type f \( -name '*.sh' -o -name 'mcpwr-deploy' \) | sort)
+
 fmt:
     uv run ruff format .
     uv run ruff check . --fix
@@ -46,13 +50,14 @@ build:
 up: network tls-selfsigned e2e-keys
     docker compose --profile dev -f docker/compose.yml up -d --build --wait
 
-# Production overlay: docker secrets, restart policies, resource limits, no dev ports.
-# Expects the secret files under $SECRETS_DIR (default /etc/ml-mcp/secrets) and .env.prod.
-up-prod: network
-    docker compose --env-file .env.prod -f docker/compose.yml -f docker/compose.prod.yml up -d --build --wait
+# Production by hand (on the VM the deploy agent does this; see docs/deploy.md). `sha` is a full
+# commit sha whose images are on GHCR. Project `backend-mcp`, the same one the agent uses.
+up-prod sha: network
+    RELEASE_TAG=sha-{{sha}} docker compose -p backend-mcp --env-file .env.prod -f docker/compose.yml -f docker/compose.prod.yml pull
+    RELEASE_TAG=sha-{{sha}} docker compose -p backend-mcp --env-file .env.prod -f docker/compose.yml -f docker/compose.prod.yml up -d --no-build --wait
 
 down-prod:
-    docker compose --env-file .env.prod -f docker/compose.yml -f docker/compose.prod.yml down
+    RELEASE_TAG=unused docker compose -p backend-mcp --env-file .env.prod -f docker/compose.yml -f docker/compose.prod.yml down
 
 # Self-signed cert for the local edge (gitignored). Idempotent: keeps an existing pair.
 tls-selfsigned:

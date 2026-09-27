@@ -1,0 +1,2 @@
+# Production serves the frontend same-origin and exposes no API to browsers, so no origin is
+# allow-listed. nginx.conf includes this file inside its $cors_origin map; it must exist.

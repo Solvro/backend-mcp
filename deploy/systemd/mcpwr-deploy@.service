@@ -1,0 +1,13 @@
+[Unit]
+Description=mcpwr deploy tick for the %i stack
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=mcpwr-deploy
+Group=mcpwr-deploy
+ExecStart=/opt/mcpwr/agent/mcpwr-deploy %i tick
+# A tick that swaps (<=180 s wait), fails its gate (~30 s) and rolls back (<=180 s + ~30 s).
+TimeoutStartSec=15min

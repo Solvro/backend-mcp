@@ -1,0 +1,8 @@
+[Unit]
+Description=Nightly Postgres and Mongo backups of the backend-mcp stack
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/mcpwr/agent/backup.sh

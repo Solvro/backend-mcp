@@ -1,5 +1,8 @@
+import logging
 import os
 
+# Ryuk can't mount Docker Desktop's socket on macOS/Windows; disable it globally.
+# Also applies to `-m unit`,
 os.environ.setdefault("TESTCONTAINERS_RYUK_DISABLED", "true")
 import subprocess
 import time
@@ -17,6 +20,7 @@ from testcontainers.core.waiting_utils import wait_for_logs
 
 ROOT = Path(__file__).parents[2]
 KEY_DIR = ROOT / "docker" / ".e2e-keys"
+logger = logging.getLogger(__name__)
 
 BUILD_TARGETS = {
     "ml-mcp-backend-integration-mcp-stub": ("docker/mcp-stub", "docker/mcp-stub/Dockerfile"),
@@ -209,10 +213,9 @@ def integration_stack() -> Iterator[dict]:
         for container in reversed(started):
             try:
                 container.stop()
-                container.remove()
             except Exception:
-                pass
+                logger.exception("failed to stop container %s", container)
         try:
             net.remove()
         except Exception:
-            pass
+            logger.exception("failed to remove network %s", net.name)

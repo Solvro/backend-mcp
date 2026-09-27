@@ -1,3 +1,8 @@
+// Vendored from https://jslib.k6.io/k6-summary/0.1.0/index.js
+// Upstream: https://github.com/grafana/k6-jslib-summary
+// Version: 0.1.0
+// License: Apache-2.0
+// Do not edit by hand. Re-download the release bundle to update.
 var nr=Object.create;var z=Object.defineProperty;var ar=Object.getOwnPropertyDescriptor;var tr=Object.getOwnPropertyNames;var sr=Object.getPrototypeOf,ur=Object.prototype.hasOwnProperty;var H=(r,e)=>()=>(e||r((e={exports:{}}).exports,e),e.exports),ir=(r,e)=>{for(var n in e)z(r,n,{get:e[n],enumerable:!0})},J=(r,e,n,t)=>{if(e&&typeof e=="object"||typeof e=="function")for(let a of tr(e))!ur.call(r,a)&&a!==n&&z(r,a,{get:()=>e[a],enumerable:!(t=ar(e,a))||t.enumerable});return r};var K=(r,e,n)=>(n=r!=null?nr(sr(r)):{},J(e||!r||!r.__esModule?z(n,"default",{value:r,enumerable:!0}):n,r)),lr=r=>J(z({},"__esModule",{value:!0}),r);var Y=H(X=>{var fr={"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"};function S(r){return r.replace(/[&<>'"]/g,e=>fr[e])}function or(r,e){let n=e&&e.name?S(e.name):"k6 thresholds",t=e&&e.classname?S(e.classname):"Unnamed folder",a=0,s=[];return Object.entries(r.metrics).forEach(([M,p])=>{!p.thresholds||Object.entries(p.thresholds).forEach(([g,w])=>{let T=`${S(M)} - ${S(g)}`;if(w.ok)s.push(`<testcase name="${T}" classname="${t}" />`);else{a++;let b=`${p.type} threshold failed: `+Object.entries(p.values).map(([$,O])=>`${$} value: ${O}`).join(", ");s.push(`<testcase name="${T}" classname="${t}"><failure message="${S(b)}" /></testcase>`)}})}),`<?xml version="1.0"?>
     <testsuites tests="${s.length}" failures="${a}">
       <testsuite name="${n}" tests="${s.length}" failures="${a}">

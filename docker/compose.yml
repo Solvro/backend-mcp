@@ -176,7 +176,7 @@ services:
         ipv4_address: 10.89.0.10
 
   k6:
-    image: grafana/k6:latest
+    image: grafana/k6:0.54.0
     profiles: [load]
     command: ["run", "/scripts/load_test.js"]
     environment:
@@ -185,7 +185,7 @@ services:
       - ../tests/load:/scripts:ro
     depends_on:
       nginx:
-        condition: service_started
+        condition: service_healthy
     networks: [backend]
 
 secrets:

@@ -139,7 +139,8 @@ def test_malformed_chat_payload_returns_unprocessable_entity(
 
     assert response.status_code == 422
 
-
+# Leaves chat-service's circuit breaker open; any later /api/chat
+# test in this file will get a 503
 def test_chat_returns_service_unavailable_when_mcp_is_down(
     client: httpx.Client, stack: dict
 ) -> None:

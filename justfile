@@ -21,10 +21,10 @@ fmt:
     uv run ruff check . --fix
 
 test:
-    uv run pytest -m unit --cov --cov-report=term-missing
+    uv run pytest -m "not integration and not e2e" --cov --cov-report=term-missing
 
 test-all:
-    uv run pytest -m unit --cov --cov-report=term-missing
+    uv run pytest -m "not integration and not e2e" --cov --cov-report=term-missing
     uv run pytest -m "integration and not e2e" --cov --cov-report=term-missing --cov-append
 
 test-integration:

@@ -1,3 +1,6 @@
+import os
+
+os.environ.setdefault("TESTCONTAINERS_RYUK_DISABLED", "true")
 import subprocess
 import time
 from collections.abc import Iterator

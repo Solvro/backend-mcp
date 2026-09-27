@@ -182,7 +182,7 @@ services:
     environment:
       BASE_URL: https://nginx
     volumes:
-      - ../tests/load/load_test.js:/scripts/load_test.js:ro
+      - ../tests/load:/scripts:ro
     depends_on:
       nginx:
         condition: service_started

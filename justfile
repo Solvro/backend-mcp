@@ -30,19 +30,29 @@ test-all:
 test-integration:
     uv run pytest -m integration
 
-test-e2e:
-    uv run pytest -m e2e
+# E2E_KEEP=1 leaves the stack running afterwards (CI does, to dump the logs when something failed).
+# `live` tests need a real ml-mcp and are never run here.
+# The e2e suite (TST-3): start docker/compose.e2e.yml, run the `e2e` tests, tear the stack down.
+test-e2e: e2e-keys tls-selfsigned
+    #!/usr/bin/env bash
+    set -uo pipefail
+    compose="docker compose -f docker/compose.e2e.yml"
+    keep() { [ "${E2E_KEEP:-0}" = 1 ]; }
+    if ! $compose up -d --build --wait; then
+        $compose ps
+        keep || $compose down -v
+        exit 1
+    fi
+    uv run pytest -m "e2e and not live"
+    status=$?
+    keep || $compose down -v
+    exit $status
 
 load base_url="https://localhost:8443":
     k6 run -e BASE_URL={{base_url}} tests/load/load_test.js
 
 load-compose:
     docker compose -f docker/compose.yml --profile load run --rm k6
-
-e2e: e2e-keys
-    docker compose -f docker/compose.e2e.yml up -d --build --wait
-    -uv run pytest -m e2e
-    docker compose -f docker/compose.e2e.yml down -v
 
 e2e-keys:
     @test -f docker/.e2e-keys/jwt_private.pem || ( \

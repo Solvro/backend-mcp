@@ -125,6 +125,7 @@ services:
       REDIS_URL: redis://redis:6379
       MCP_SERVER_URL: ${MCP_SERVER_URL:-http://mcp-server:8005/mcp}
       JWT_PUBLIC_KEY_FILE: /run/dev-keys/jwt_public.pem
+      CHAT_DAILY_QUOTA_ANONYMOUS: "500"
     volumes:
       - ./.e2e-keys:/run/dev-keys:ro
     ports:
@@ -174,11 +175,25 @@ services:
       backend:
         ipv4_address: 10.89.0.10
 
+  k6:
+    image: grafana/k6:0.54.0
+    profiles: [load]
+    command: ["run", "/scripts/load_test.js"]
+    environment:
+      BASE_URL: https://nginx
+    volumes:
+      - ../tests/load:/scripts:ro
+    depends_on:
+      nginx:
+        condition: service_healthy
+    networks: [backend]
+
 secrets:
   tls_cert:
     file: ./.tls/cert.pem
   tls_key:
     file: ./.tls/key.pem
+
 
 volumes:
   pgdata:

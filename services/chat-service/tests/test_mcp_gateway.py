@@ -436,3 +436,24 @@ async def test_failure_that_opens_the_breaker_advertises_the_open_window(monkeyp
         await gw.query("q")
     assert second.value.headers["Retry-After"] == "18"  # fail-fast path: remaining window
     await gw.aclose()
+
+
+async def test_mcp_server_that_hangs_during_session_init_is_an_outage(monkeypatch) -> None:
+    # A server that accepts the connection but never answers `initialize`. fastmcp's own init
+    # timeout would report it as a bare RuntimeError (the TimeoutError is dropped on the way),
+    # which read as an ordinary upstream error: HTTP 200 with the degraded answer instead of a
+    # 503 the client can retry. Found by the e2e suite (chat-slow, httpbin /delay).
+    from mcp import ClientSession
+
+    async def never_answers(self, *args, **kwargs):
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(ClientSession, "initialize", never_answers)
+    gw = make_gateway(stub_server(_ok), init_timeout=0.2, max_retries=0)
+
+    async with asyncio.timeout(5):
+        with pytest.raises(ServiceUnavailableError) as info:
+            await gw.query("q")
+
+    assert isinstance(info.value.__cause__, TimeoutError)
+    await gw.aclose()

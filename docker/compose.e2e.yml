@@ -1,12 +1,6 @@
 # The e2e stack (TST-3). `just test-e2e` brings it up, runs `pytest -m "e2e and not live"`
 # against it and tears it down again; CI runs the same recipe.
 #
-# Tests reach the services through the dev TLS edge (nginx on :18443), like a browser would.
-# The exceptions are chat-slow and chat-broken: chat-service instances whose MCP server is
-# httpbin misbehaving on purpose (/delay, /status/503), so the gateway's timeout and circuit
-# breaker paths run without a live ml-mcp or any LLM key. They are reached on their own ports.
-# docker/mcp-stub stands in for ml-mcp on the happy path.
-#
 # Its own subnet (10.91.0.0/24), so it can run next to the dev stack (10.89.0.0/24).
 name: ml-mcp-backend-e2e
 
@@ -17,8 +11,6 @@ x-healthcheck-http: &healthcheck-http
   retries: 12
   start_period: 10s
 
-# chat-service builds the image; chat-slow and chat-broken only run it (building one tag from
-# three services in parallel races).
 x-chat-service: &chat-service
   image: ml-mcp-backend-e2e/chat-service
   pull_policy: never
@@ -38,10 +30,8 @@ x-chat-env: &chat-env
   MONGO_URI: mongodb://mongo:27017
   REDIS_URL: redis://redis:6379
   FORWARDED_ALLOW_IPS: 10.91.0.10
-  # Every test calls from the same address: the real per-IP daily quotas would fail the suite.
   CHAT_DAILY_QUOTA_ANONYMOUS: "1000"
   CHAT_DAILY_QUOTA_AUTHENTICATED: "1000"
-  # Deterministic answers: never serve one test's answer to another from the semantic cache.
   ANSWER_CACHE_ENABLED: "false"
 
 services:
@@ -83,7 +73,7 @@ services:
       MP_SMTP_AUTH_ACCEPT_ANY: "true"
       MP_SMTP_AUTH_ALLOW_INSECURE: "true"
     ports:
-      - "1025:1025" # SMTP (libs/common's e2e mail test sends here)
+      - "1025:1025" # SMTP
       - "8025:8025" # API: the tests read verification emails from it
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8025/readyz"]
@@ -108,7 +98,7 @@ services:
     networks: [e2e]
 
   migrate:
-    image: ml-mcp-backend-e2e/auth-service  # built by auth-service
+    image: ml-mcp-backend-e2e/auth-service
     pull_policy: never
     command: ["alembic", "upgrade", "head"]
     environment:
@@ -134,7 +124,7 @@ services:
       FRONTEND_URL: https://localhost:18443
       SMTP_HOST: mailpit
       SMTP_PORT: "1025"
-      SMTP_STARTTLS: "false"  # mailpit speaks plain SMTP; the default (true) fails every send
+      SMTP_STARTTLS: "false"
     volumes:
       - ./.e2e-keys:/run/e2e-keys:ro
     healthcheck: *healthcheck-http
@@ -165,7 +155,6 @@ services:
       mcp-stub:
         condition: service_healthy
 
-  # MCP-1: every MCP call outlives its 2 s budget (httpbin holds it for 5 s).
   chat-slow:
     <<: *chat-service
     environment:
@@ -177,7 +166,6 @@ services:
     ports:
       - "18011:8000"
 
-  # MCP-2: every MCP call is an outage (503); the breaker opens after 2 and stays open 60 s.
   chat-broken:
     <<: *chat-service
     environment:
@@ -229,6 +217,5 @@ networks:
     driver: bridge
     ipam:
       config:
-        # Dynamic addresses from the upper half only, so nothing can take nginx's fixed .10.
         - subnet: 10.91.0.0/24
           ip_range: 10.91.0.128/25

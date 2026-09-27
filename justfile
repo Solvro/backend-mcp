@@ -30,9 +30,6 @@ test-all:
 test-integration:
     uv run pytest -m integration
 
-# E2E_KEEP=1 leaves the stack running afterwards (CI does, to dump the logs when something failed).
-# `live` tests need a real ml-mcp and are never run here.
-# The e2e suite (TST-3): start docker/compose.e2e.yml, run the `e2e` tests, tear the stack down.
 test-e2e: e2e-keys tls-selfsigned
     #!/usr/bin/env bash
     set -uo pipefail

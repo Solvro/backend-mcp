@@ -439,10 +439,6 @@ async def test_failure_that_opens_the_breaker_advertises_the_open_window(monkeyp
 
 
 async def test_mcp_server_that_hangs_during_session_init_is_an_outage(monkeypatch) -> None:
-    # A server that accepts the connection but never answers `initialize`. fastmcp's own init
-    # timeout would report it as a bare RuntimeError (the TimeoutError is dropped on the way),
-    # which read as an ordinary upstream error: HTTP 200 with the degraded answer instead of a
-    # 503 the client can retry. Found by the e2e suite (chat-slow, httpbin /delay).
     from mcp import ClientSession
 
     async def never_answers(self, *args, **kwargs):

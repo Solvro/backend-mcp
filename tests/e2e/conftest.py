@@ -1,9 +1,3 @@
-"""Fixtures for the e2e suite, which drives the stack from docker/compose.e2e.yml.
-
-`just test-e2e` brings the stack up (and down again); the URLs below match its published ports
-and can be overridden with E2E_* variables when the stack runs elsewhere.
-"""
-
 import os
 import subprocess
 from collections.abc import Iterator

@@ -1,5 +1,3 @@
-"""Reading what auth-service sent through the e2e stack's mailpit."""
-
 import re
 import time
 

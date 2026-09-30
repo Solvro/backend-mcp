@@ -95,6 +95,7 @@ services:
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
       SMTP_HOST: mailpit
       SMTP_PORT: "1025"
+      SMTP_STARTTLS: "false"  # mailpit speaks plain SMTP; the default (true) fails every send
     volumes:
       - ./.e2e-keys:/run/dev-keys:ro
     ports:

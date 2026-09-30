@@ -3,7 +3,8 @@ from chat_app.mcp_gateway import KnowledgeGraphGateway
 from chat_app.settings import ChatSettings
 from common.errors import UpstreamError
 
-pytestmark = pytest.mark.e2e
+# Needs a real ml-mcp server (MCP_SERVER_URL); `just test-e2e` and CI deselect `live`.
+pytestmark = [pytest.mark.e2e, pytest.mark.live]
 
 _PROBE_INIT_TIMEOUT = 2.0
 

@@ -45,6 +45,7 @@ markers = [
     "unit: marks unit tests",
     "e2e: marks end-to-end tests",
     "integration: needs Docker or other real backing services",
+    "live: needs real external services (ml-mcp, Langfuse); never run by just test-e2e or CI",
 ]
 
 [tool.coverage.run]

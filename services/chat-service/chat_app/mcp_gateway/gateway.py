@@ -161,8 +161,16 @@ class KnowledgeGraphGateway:
             if self._client is None or not self._client.is_connected():
                 if self._client is not None:
                     await _safe_close(self._client)
-                client = Client(self._transport, init_timeout=self._init_timeout)
-                await client.__aenter__()
+                # init_timeout=0 turns fastmcp's own timer off: when it fires it raises a bare
+                # RuntimeError with the TimeoutError dropped, which classified a hung server as
+                # an ordinary upstream error (HTTP 200, degraded) instead of an outage (503).
+                client = Client(self._transport, init_timeout=0)
+                try:
+                    async with asyncio.timeout(self._init_timeout):
+                        await client.__aenter__()
+                except BaseException:
+                    await _safe_close(client)
+                    raise
                 self._client = client
             return self._client
 
